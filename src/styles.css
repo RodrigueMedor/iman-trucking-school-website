@@ -1,0 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+html, body, #root { min-height: 100%; }
+body { margin: 0; }
+a { text-underline-offset: 3px; }
