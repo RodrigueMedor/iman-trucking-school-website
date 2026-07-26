@@ -17,6 +17,8 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FacebookRoundedIcon from '@mui/icons-material/FacebookRounded'
@@ -324,18 +326,57 @@ export function Header() {
               href="https://coach.lending.online/iman-trucking-school"
               target="_blank"
               rel="noreferrer"
-              variant="contained"
-              color="secondary"
+              aria-label="Explore financing options for CDL training"
+              startIcon={<AccountBalanceWalletOutlinedIcon />}
+              endIcon={<ArrowForwardRoundedIcon />}
               sx={{
                 ml: 'auto',
-                minWidth: 325,
-                minHeight: 50,
+                minWidth: 306,
+                minHeight: 54,
                 display: { xs: 'none', lg: 'inline-flex' },
-                borderRadius: 0.75,
-                fontSize: '1.2rem',
-                letterSpacing: '.02em',
-                boxShadow: 'none',
-                '&:hover': { boxShadow: '0 10px 25px rgba(239,48,38,.25)', transform: 'translateY(-1px)' },
+                overflow: 'hidden',
+                position: 'relative',
+                border: '1px solid rgba(255,255,255,.26)',
+                borderRadius: 1.5,
+                color: 'white',
+                bgcolor: '#e52d27',
+                backgroundImage: 'linear-gradient(135deg, #f13b31 0%, #cf2029 100%)',
+                px: 2.5,
+                fontSize: '1rem',
+                fontWeight: 900,
+                letterSpacing: '.055em',
+                boxShadow: '0 10px 24px rgba(207,32,41,.22)',
+                transition: 'transform .22s ease, box-shadow .22s ease, filter .22s ease',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: '-80%',
+                  left: '-35%',
+                  width: '26%',
+                  height: '260%',
+                  bgcolor: 'rgba(255,255,255,.2)',
+                  transform: 'rotate(24deg)',
+                  transition: 'left .55s ease',
+                },
+                '& .MuiButton-startIcon': {
+                  mr: 1.25,
+                  p: 0.65,
+                  borderRadius: 1,
+                  bgcolor: 'rgba(255,255,255,.15)',
+                },
+                '& .MuiButton-endIcon': { ml: 1.25, transition: 'transform .2s ease' },
+                '&:hover': {
+                  color: 'white',
+                  filter: 'brightness(1.04)',
+                  boxShadow: '0 14px 30px rgba(207,32,41,.32)',
+                  transform: 'translateY(-2px)',
+                },
+                '&:hover::before': { left: '120%' },
+                '&:hover .MuiButton-endIcon': { transform: 'translateX(3px)' },
+                '&:focus-visible': {
+                  outline: '3px solid rgba(239,48,38,.3)',
+                  outlineOffset: 3,
+                },
               }}
             >
               Financing available
@@ -447,8 +488,24 @@ export function Header() {
               href="https://coach.lending.online/iman-trucking-school"
               target="_blank"
               rel="noreferrer"
-              variant="contained"
-              color="secondary"
+              startIcon={<AccountBalanceWalletOutlinedIcon />}
+              endIcon={<ArrowForwardRoundedIcon />}
+              sx={{
+                minHeight: 50,
+                color: 'white',
+                bgcolor: '#e52d27',
+                backgroundImage: 'linear-gradient(135deg, #f13b31 0%, #cf2029 100%)',
+                borderRadius: 1.5,
+                fontWeight: 900,
+                letterSpacing: '.035em',
+                boxShadow: '0 10px 22px rgba(207,32,41,.22)',
+                '&:hover': {
+                  color: 'white',
+                  backgroundImage: 'linear-gradient(135deg, #f13b31 0%, #bd1721 100%)',
+                  boxShadow: '0 13px 26px rgba(207,32,41,.3)',
+                },
+                '& .MuiButton-endIcon': { ml: 'auto' },
+              }}
             >
               Financing available
             </Button>
