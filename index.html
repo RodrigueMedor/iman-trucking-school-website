@@ -6,6 +6,84 @@
     <meta name="description" content="Earn your Class A CDL with hands-on training, flexible financing, and career-focused support at Iman Trucking School." />
     <link rel="icon" href="https://imantruckingschool.com/wp-content/uploads/2025/02/FAVICON-1-150x150.png" />
     <title>Iman Trucking School | The Road to Success</title>
+    <style>
+      #iman-chat-greeting {
+        position: fixed;
+        right: 20px;
+        bottom: 82px;
+        z-index: 2147483000;
+        display: flex;
+        width: 271px;
+        min-height: 65px;
+        box-sizing: border-box;
+        align-items: center;
+        gap: 11px;
+        padding: 10px 34px 10px 11px;
+        border: 1px solid rgba(15, 23, 42, .08);
+        border-radius: 10px;
+        color: #344054;
+        background: #fff;
+        box-shadow: 0 8px 30px rgba(15, 23, 42, .18);
+        font: 400 16px/1.35 Roboto, "Helvetica Neue", Arial, sans-serif;
+        cursor: pointer;
+        animation: iman-chat-greeting-in .24s ease-out both;
+      }
+      #iman-chat-greeting::after {
+        content: "";
+        position: absolute;
+        right: 18px;
+        bottom: -7px;
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        transform: rotate(45deg);
+        box-shadow: 3px 3px 5px rgba(15, 23, 42, .06);
+      }
+      #iman-chat-greeting img {
+        flex: 0 0 auto;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        object-fit: cover;
+      }
+      #iman-chat-greeting span { position: relative; z-index: 1; }
+      #iman-chat-greeting button {
+        position: absolute;
+        z-index: 2;
+        top: 8px;
+        right: 8px;
+        display: grid;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        place-items: center;
+        border: 0;
+        border-radius: 50%;
+        color: #667085;
+        background: transparent;
+        font: 400 20px/1 Arial, sans-serif;
+        cursor: pointer;
+      }
+      #iman-chat-greeting button:hover,
+      #iman-chat-greeting button:focus-visible {
+        color: #111827;
+        background: #f2f4f7;
+      }
+      @keyframes iman-chat-greeting-in {
+        from { opacity: 0; transform: translateY(8px) scale(.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @media (max-width: 480px) {
+        #iman-chat-greeting {
+          right: 14px;
+          bottom: 80px;
+          width: min(271px, calc(100vw - 28px));
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #iman-chat-greeting { animation: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
@@ -33,6 +111,79 @@
           window.lc_public_js.text_widget_use_email_field === "1" ? "true" : "false"
         );
         document.body.appendChild(textWidget);
+
+        var checks = 0;
+        var greetingCheck = window.setInterval(function () {
+          checks += 1;
+          var widget = document.querySelector("chat-widget");
+          var nativePrompt = widget && widget.shadowRoot
+            ? widget.shadowRoot.querySelector(".lc_text-widget--prompt")
+            : null;
+
+          if (nativePrompt) {
+            window.clearInterval(greetingCheck);
+            return;
+          }
+
+          if (checks < 20) return;
+          window.clearInterval(greetingCheck);
+
+          try {
+            if (window.sessionStorage.getItem("iman-chat-greeting-dismissed") === "true") return;
+          } catch (error) {
+            // The greeting can still work when storage is unavailable.
+          }
+
+          var greeting = document.createElement("div");
+          greeting.id = "iman-chat-greeting";
+          greeting.setAttribute("role", "button");
+          greeting.setAttribute("tabindex", "0");
+          greeting.setAttribute("aria-label", "Open chat: Hi there! Have a question? Chat with us.");
+          greeting.innerHTML =
+            '<img src="https://widgets.leadconnectorhq.com/chat-widget/assets/defaultAvatar.png" alt="" width="36" height="36">' +
+            '<span>Hi there! Have a question?<br>Chat with us.</span>' +
+            '<button type="button" aria-label="Close chat greeting">&times;</button>';
+
+          function removeGreeting() {
+            greeting.remove();
+          }
+
+          function openChat() {
+            var chatButton = widget && widget.shadowRoot
+              ? widget.shadowRoot.querySelector("#lc_text-widget--btn")
+              : null;
+            if (chatButton) chatButton.click();
+            removeGreeting();
+          }
+
+          greeting.addEventListener("click", function (event) {
+            if (event.target.closest("button")) return;
+            openChat();
+          });
+          greeting.addEventListener("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openChat();
+            }
+          });
+          greeting.querySelector("button").addEventListener("click", function (event) {
+            event.stopPropagation();
+            try {
+              window.sessionStorage.setItem("iman-chat-greeting-dismissed", "true");
+            } catch (error) {
+              // Closing the prompt should still work when storage is unavailable.
+            }
+            removeGreeting();
+          });
+
+          document.body.appendChild(greeting);
+
+          if (widget) {
+            new MutationObserver(function () {
+              if (widget.getAttribute("data-active") === "true") removeGreeting();
+            }).observe(widget, { attributes: true, attributeFilter: ["data-active"] });
+          }
+        }, 250);
       });
     </script>
   </body>
