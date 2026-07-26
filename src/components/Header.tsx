@@ -389,6 +389,34 @@ export function Header() {
               spacing={0.25}
               sx={{ display: { xs: 'none', lg: 'flex' }, alignSelf: 'stretch' }}
             >
+              <Button
+                component={RouterLink}
+                to="/"
+                color="inherit"
+                aria-current={pathname === '/' ? 'page' : undefined}
+                sx={{
+                  alignSelf: 'stretch',
+                  borderRadius: 0,
+                  color: pathname === '/' ? 'secondary.main' : '#09095e',
+                  px: 1.55,
+                  position: 'relative',
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    right: 12,
+                    bottom: 0,
+                    left: 12,
+                    height: 3,
+                    bgcolor: 'secondary.main',
+                    transform: pathname === '/' ? 'scaleX(1)' : 'scaleX(0)',
+                    transition: 'transform .2s ease',
+                  },
+                  '&:hover': { color: 'secondary.main', bgcolor: 'transparent' },
+                  '&:hover::after': { transform: 'scaleX(1)' },
+                }}
+              >
+                Home
+              </Button>
               <DesktopMenu label="Truck Driving School" links={truckDrivingLinks} />
               <DesktopMenu label="Our Program" links={programMenuLinks} />
               {directLinks.map(([label, path]) => {
