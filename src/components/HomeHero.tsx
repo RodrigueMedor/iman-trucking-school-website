@@ -1,10 +1,34 @@
-import { Box, Button, Container, Stack, Typography } from '@mui/material'
+import { useEffect, useState } from 'react'
+import { Box, Button, Container, IconButton, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
 
+const trainingVideos = [
+  {
+    src: 'https://imantruckingschool.com/wp-content/uploads/2025/02/TPAUL-IMAN.mp4',
+    label: 'Student driver training',
+  },
+  {
+    src: 'https://imantruckingschool.com/wp-content/uploads/2025/02/WEB-IMAN.mp4',
+    label: 'CDL training experience',
+  },
+] as const
+
 export function HomeHero() {
+  const [activeVideo, setActiveVideo] = useState(0)
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+
+  useEffect(() => {
+    if (reduceMotion) return
+    const rotation = window.setInterval(() => {
+      setActiveVideo((current) => (current + 1) % trainingVideos.length)
+    }, 12_000)
+    return () => window.clearInterval(rotation)
+  }, [reduceMotion])
+
   return <>
     <Box
       component="section"
@@ -15,12 +39,49 @@ export function HomeHero() {
         alignItems: 'center',
         overflow: 'hidden',
         color: 'white',
-        backgroundImage: 'linear-gradient(90deg, rgba(4,18,38,.96) 0%, rgba(4,18,38,.82) 43%, rgba(4,18,38,.18) 78%), url(/images/home-hero.jpg)',
+        bgcolor: '#041226',
+        backgroundImage: 'url(/images/home-hero.jpg)',
         backgroundSize: 'cover',
         backgroundPosition: { xs: '62% center', md: 'center 45%' },
       }}
     >
-      <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 65%, rgba(4,18,38,.75))' }} />
+      {!reduceMotion && (
+        <Box
+          component="video"
+          key={trainingVideos[activeVideo].src}
+          src={trainingVideos[activeVideo].src}
+          poster="/images/home-hero.jpg"
+          autoPlay
+          muted
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          onEnded={() => setActiveVideo((current) => (current + 1) % trainingVideos.length)}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+            animation: 'imanVideoReveal .9s ease both',
+            '@keyframes imanVideoReveal': {
+              from: { opacity: 0, transform: 'scale(1.025)' },
+              to: { opacity: 1, transform: 'scale(1)' },
+            },
+          }}
+        />
+      )}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          background: {
+            xs: 'linear-gradient(90deg, rgba(4,18,38,.94) 0%, rgba(4,18,38,.79) 72%, rgba(4,18,38,.48) 100%)',
+            md: 'linear-gradient(90deg, rgba(4,18,38,.96) 0%, rgba(4,18,38,.8) 43%, rgba(4,18,38,.2) 78%), linear-gradient(180deg, transparent 62%, rgba(4,18,38,.78))',
+          },
+        }}
+      />
       <Container sx={{ position: 'relative', py: { xs: 9, md: 12 } }}>
         <Box maxWidth={700}>
           <Typography component="p" sx={{ display: 'inline-flex', px: 1.5, py: .75, mb: 2.5, border: '1px solid rgba(255,255,255,.28)', borderRadius: 20, bgcolor: 'rgba(255,255,255,.08)', backdropFilter: 'blur(8px)', fontSize: '.78rem', fontWeight: 900, letterSpacing: '.11em', textTransform: 'uppercase' }}>
@@ -49,6 +110,44 @@ export function HomeHero() {
             ))}
           </Stack>
         </Box>
+        <Stack
+          className="notranslate"
+          translate="no"
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          sx={{ position: 'absolute', right: { xs: 24, md: 40 }, bottom: { xs: 24, md: 34 } }}
+          aria-label="Select homepage training video"
+        >
+          <Typography
+            variant="caption"
+            sx={{ display: { xs: 'none', sm: 'block' }, mr: .5, color: 'rgba(255,255,255,.72)', fontWeight: 800 }}
+          >
+            Training view {activeVideo + 1} of {trainingVideos.length}
+          </Typography>
+          {trainingVideos.map((video, index) => (
+            <Tooltip key={video.src} title={video.label}>
+              <IconButton
+                aria-label={`Play ${video.label}`}
+                aria-pressed={activeVideo === index}
+                onClick={() => setActiveVideo(index)}
+                size="small"
+                sx={{
+                  width: activeVideo === index ? 42 : 34,
+                  height: 34,
+                  color: 'white',
+                  bgcolor: activeVideo === index ? 'secondary.main' : 'rgba(255,255,255,.16)',
+                  border: '1px solid rgba(255,255,255,.38)',
+                  backdropFilter: 'blur(10px)',
+                  transition: 'all .25s ease',
+                  '&:hover': { bgcolor: activeVideo === index ? 'secondary.dark' : 'rgba(255,255,255,.27)' },
+                }}
+              >
+                <PlayArrowRoundedIcon sx={{ fontSize: 19 }} />
+              </IconButton>
+            </Tooltip>
+          ))}
+        </Stack>
       </Container>
     </Box>
     <Box sx={{ bgcolor: 'white', borderBottom: '1px solid', borderColor: 'divider' }}>
