@@ -17,8 +17,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined'
-import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FacebookRoundedIcon from '@mui/icons-material/FacebookRounded'
@@ -321,102 +319,6 @@ export function Header() {
               })}
             </Stack>
 
-            <Box
-              component="a"
-              href="https://coach.lending.online/iman-trucking-school"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Explore financing options for CDL training"
-              sx={{
-                ml: 'auto',
-                width: 306,
-                minHeight: 62,
-                display: { xs: 'none', lg: 'inline-flex' },
-                alignItems: 'center',
-                gap: 1.35,
-                border: '1px solid rgba(8,8,95,.14)',
-                borderLeft: '4px solid #ef3026',
-                borderRadius: 2,
-                color: '#08085f',
-                bgcolor: 'white',
-                px: 1.5,
-                py: 0.8,
-                textDecoration: 'none',
-                boxShadow: '0 8px 24px rgba(8,8,95,.10)',
-                transition: 'transform .22s ease, box-shadow .22s ease, border-color .22s ease',
-                '&:hover': {
-                  color: '#08085f',
-                  borderColor: 'rgba(239,48,38,.28)',
-                  borderLeftColor: '#ef3026',
-                  boxShadow: '0 13px 30px rgba(8,8,95,.15)',
-                  transform: 'translateY(-2px)',
-                },
-                '&:hover .financing-arrow': {
-                  color: 'white',
-                  bgcolor: '#ef3026',
-                  transform: 'translateX(2px)',
-                },
-                '&:focus-visible': {
-                  outline: '3px solid rgba(8,8,95,.22)',
-                  outlineOffset: 3,
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'grid',
-                  placeItems: 'center',
-                  flex: '0 0 auto',
-                  width: 39,
-                  height: 39,
-                  borderRadius: '50%',
-                  color: 'white',
-                  bgcolor: '#ef3026',
-                  boxShadow: '0 6px 14px rgba(239,48,38,.22)',
-                }}
-              >
-                <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 20 }} />
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography
-                  component="span"
-                  sx={{
-                    display: 'block',
-                    color: 'secondary.main',
-                    fontSize: '.67rem',
-                    fontWeight: 900,
-                    letterSpacing: '.12em',
-                    lineHeight: 1.15,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Flexible payment options
-                </Typography>
-                <Typography
-                  component="span"
-                  sx={{ display: 'block', mt: 0.35, fontSize: '.98rem', fontWeight: 900, lineHeight: 1.2 }}
-                >
-                  Explore financing
-                </Typography>
-              </Box>
-              <Box
-                className="financing-arrow"
-                sx={{
-                  display: 'grid',
-                  placeItems: 'center',
-                  flex: '0 0 auto',
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                  color: '#08085f',
-                  bgcolor: '#f1f2f8',
-                  transition: 'all .2s ease',
-                }}
-              >
-                <ArrowForwardRoundedIcon sx={{ fontSize: 18 }} />
-              </Box>
-            </Box>
-
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ display: { xs: 'flex', lg: 'none' } }}>
               <IconButton component="a" href="tel:8889914776" aria-label="Call Iman Trucking School" sx={{ color: 'secondary.main' }}>
                 <PhoneRoundedIcon />
@@ -518,39 +420,6 @@ export function Header() {
             <Button component="a" href="tel:8889914776" variant="outlined" startIcon={<PhoneRoundedIcon />}>
               (888) 991-4776
             </Button>
-            <Box
-              component="a"
-              href="https://coach.lending.online/iman-trucking-school"
-              target="_blank"
-              rel="noreferrer"
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1.25,
-                minHeight: 64,
-                border: '1px solid rgba(8,8,95,.14)',
-                borderLeft: '4px solid #ef3026',
-                borderRadius: 2,
-                color: '#08085f',
-                bgcolor: 'white',
-                px: 1.4,
-                textDecoration: 'none',
-                boxShadow: '0 8px 20px rgba(8,8,95,.09)',
-              }}
-            >
-              <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '50%', color: 'white', bgcolor: '#ef3026' }}>
-                <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 20 }} />
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <Typography component="span" sx={{ display: 'block', color: 'secondary.main', fontSize: '.64rem', fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase' }}>
-                  Flexible payment options
-                </Typography>
-                <Typography component="span" sx={{ display: 'block', mt: 0.25, fontSize: '.95rem', fontWeight: 900 }}>
-                  Explore financing
-                </Typography>
-              </Box>
-              <ArrowForwardRoundedIcon sx={{ fontSize: 19 }} />
-            </Box>
             <Typography variant="caption" color="text.secondary" textAlign="center">
               info@imanlogistics.com
             </Typography>
