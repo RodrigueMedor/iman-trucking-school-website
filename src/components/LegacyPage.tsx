@@ -11,6 +11,29 @@ export function LegacyPage() {
   const [loading, setLoading] = useState(true)
   const normalized = pathname.endsWith('/') ? pathname : `${pathname}/`
   const source = normalized === '/' ? '/legacy/index.html' : `/legacy${normalized}index.html`
+  const financingUrl = 'https://coach.lending.online/iman-trucking-school'
+
+  const prepareFrameLinks = () => {
+    setLoading(false)
+    const frameDocument = frameRef.current?.contentDocument
+    if (!frameDocument) return
+
+    frameDocument
+      .querySelectorAll<HTMLAnchorElement>(`a[href="${financingUrl}"]`)
+      .forEach((link) => {
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+
+        if (link.dataset.newTabReady === 'true') return
+        link.dataset.newTabReady = 'true'
+        link.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          const financingTab = window.open(financingUrl, '_blank')
+          if (financingTab) financingTab.opener = null
+        })
+      })
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -58,6 +81,6 @@ export function LegacyPage() {
 
   return <Box position="relative" minHeight={500}>
     {loading && <LinearProgress aria-label="Loading page" sx={{ position: 'absolute', inset: '0 0 auto', zIndex: 1 }} />}
-    <Box component="iframe" ref={frameRef} key={source} src={source} title={pageTitles[normalized] || 'Iman Trucking School page'} onLoad={() => setLoading(false)} sx={{ display: 'block', width: '100%', height, border: 0, bgcolor: 'background.default' }} />
+    <Box component="iframe" ref={frameRef} key={source} src={source} title={pageTitles[normalized] || 'Iman Trucking School page'} onLoad={prepareFrameLinks} sx={{ display: 'block', width: '100%', height, border: 0, bgcolor: 'background.default' }} />
   </Box>
 }
