@@ -17,11 +17,13 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import FacebookRoundedIcon from '@mui/icons-material/FacebookRounded'
 import InstagramIcon from '@mui/icons-material/Instagram'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
+import LanguageRoundedIcon from '@mui/icons-material/LanguageRounded'
 import MailRoundedIcon from '@mui/icons-material/MailRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
@@ -57,6 +59,113 @@ const socialLinks = [
 ] as const
 
 type MenuLinks = typeof truckDrivingLinks | typeof programMenuLinks
+type SiteLanguage = 'en' | 'ht' | 'es'
+
+const siteLanguages: Array<{ code: SiteLanguage; short: string; label: string }> = [
+  { code: 'en', short: 'EN', label: 'English' },
+  { code: 'ht', short: 'KR', label: 'Kreyòl' },
+  { code: 'es', short: 'ES', label: 'Español' },
+]
+
+function getCurrentLanguage(): SiteLanguage {
+  if (typeof window === 'undefined') return 'en'
+  const saved = window.localStorage.getItem('iman-site-language')
+  if (saved === 'ht' || saved === 'es' || saved === 'en') return saved
+  const cookieMatch = document.cookie.match(/(?:^|;\s*)googtrans=\/en\/(en|ht|es)/)
+  return (cookieMatch?.[1] as SiteLanguage | undefined) ?? 'en'
+}
+
+function selectLanguage(language: SiteLanguage) {
+  window.localStorage.setItem('iman-site-language', language)
+  const cookieValue = `/en/${language}`
+  document.cookie = `googtrans=${cookieValue};path=/;max-age=31536000;SameSite=Lax`
+
+  if (window.location.hostname.includes('.')) {
+    document.cookie = `googtrans=${cookieValue};path=/;domain=.${window.location.hostname};max-age=31536000;SameSite=Lax`
+  }
+
+  window.location.reload()
+}
+
+function LanguageSelector({ compact = false }: { compact?: boolean }) {
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
+  const currentLanguage = getCurrentLanguage()
+  const current = siteLanguages.find(({ code }) => code === currentLanguage) ?? siteLanguages[0]
+
+  return (
+    <Box className="notranslate" translate="no">
+      <Button
+        aria-label={`Select language. Current language: ${current.label}`}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(anchor)}
+        onClick={(event) => setAnchor(event.currentTarget)}
+        startIcon={<LanguageRoundedIcon />}
+        endIcon={compact ? undefined : <KeyboardArrowDownRoundedIcon />}
+        sx={{
+          minWidth: compact ? 52 : 118,
+          minHeight: compact ? 40 : 42,
+          px: compact ? 1 : 1.35,
+          border: '1px solid rgba(8,8,95,.16)',
+          borderRadius: 1.5,
+          color: '#08085f',
+          bgcolor: '#f7f8fc',
+          fontSize: compact ? '.75rem' : '.8rem',
+          letterSpacing: '.04em',
+          '&:hover': { borderColor: 'secondary.main', bgcolor: 'rgba(239,48,38,.05)' },
+          '& .MuiButton-startIcon': { mr: compact ? 0.5 : 0.8 },
+        }}
+      >
+        {compact ? current.short : current.label}
+      </Button>
+      <Menu
+        anchorEl={anchor}
+        open={Boolean(anchor)}
+        onClose={() => setAnchor(null)}
+        slotProps={{
+          paper: {
+            className: 'notranslate',
+            translate: 'no',
+            sx: {
+              mt: 0.75,
+              minWidth: 190,
+              border: '1px solid rgba(8,8,95,.12)',
+              borderRadius: 2,
+              boxShadow: '0 18px 45px rgba(8,8,95,.16)',
+            },
+          },
+        }}
+      >
+        {siteLanguages.map(({ code, short, label }) => (
+          <MenuItem
+            key={code}
+            selected={currentLanguage === code}
+            onClick={() => selectLanguage(code)}
+            sx={{ gap: 1.25, py: 1.15, color: '#08085f', fontWeight: 750 }}
+          >
+            <Box
+              component="span"
+              sx={{
+                display: 'grid',
+                width: 30,
+                height: 24,
+                placeItems: 'center',
+                borderRadius: 1,
+                color: currentLanguage === code ? 'white' : '#08085f',
+                bgcolor: currentLanguage === code ? 'secondary.main' : '#eef0f6',
+                fontSize: '.68rem',
+                fontWeight: 900,
+              }}
+            >
+              {short}
+            </Box>
+            <Box component="span" sx={{ flex: 1 }}>{label}</Box>
+            {currentLanguage === code && <CheckRoundedIcon color="secondary" fontSize="small" />}
+          </MenuItem>
+        ))}
+      </Menu>
+    </Box>
+  )
+}
 
 function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
@@ -319,7 +428,12 @@ export function Header() {
               })}
             </Stack>
 
+            <Box sx={{ display: { xs: 'none', lg: 'block' }, ml: 'auto' }}>
+              <LanguageSelector />
+            </Box>
+
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ display: { xs: 'flex', lg: 'none' } }}>
+              <LanguageSelector compact />
               <IconButton component="a" href="tel:8889914776" aria-label="Call Iman Trucking School" sx={{ color: 'secondary.main' }}>
                 <PhoneRoundedIcon />
               </IconButton>
@@ -417,6 +531,7 @@ export function Header() {
             ))}
           </Box>
           <Stack spacing={1.25} p={2.5} mt="auto" bgcolor="#f6f7fb">
+            <LanguageSelector />
             <Button component="a" href="tel:8889914776" variant="outlined" startIcon={<PhoneRoundedIcon />}>
               (888) 991-4776
             </Button>

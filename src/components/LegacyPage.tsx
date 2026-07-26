@@ -18,6 +18,13 @@ export function LegacyPage() {
     const frameDocument = frameRef.current?.contentDocument
     if (!frameDocument) return
 
+    if (!frameDocument.querySelector('script[data-iman-translation-loader]')) {
+      const translationLoader = frameDocument.createElement('script')
+      translationLoader.src = '/frame-translate.js'
+      translationLoader.dataset.imanTranslationLoader = 'true'
+      frameDocument.body.appendChild(translationLoader)
+    }
+
     frameDocument
       .querySelectorAll<HTMLAnchorElement>(`a[href="${financingUrl}"]`)
       .forEach((link) => {
