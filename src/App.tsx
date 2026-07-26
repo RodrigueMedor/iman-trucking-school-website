@@ -4,8 +4,8 @@ import { Footer } from './components/Footer'
 import { EnrollmentModal } from './components/EnrollmentModal'
 import { Header } from './components/Header'
 import { HomeHero } from './components/HomeHero'
+import { HomePage } from './components/HomePage'
 import { InternalPage } from './components/InternalPage'
-import { LegacyPage } from './components/LegacyPage'
 import { pageTitles } from './navigation'
 
 function ScrollManager() {
@@ -25,7 +25,7 @@ export function App() {
     <main id="main-content">
       <Routes>
         {Object.keys(pageTitles).map(path => (
-          <Route key={path} path={path} element={path === '/' ? <LegacyPage /> : <InternalPage />} />
+          <Route key={path} path={path} element={path === '/' ? <HomePage /> : <InternalPage />} />
         ))}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
