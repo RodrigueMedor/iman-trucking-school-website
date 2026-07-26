@@ -4,6 +4,7 @@ import { Footer } from './components/Footer'
 import { EnrollmentModal } from './components/EnrollmentModal'
 import { Header } from './components/Header'
 import { HomeHero } from './components/HomeHero'
+import { InternalPage } from './components/InternalPage'
 import { LegacyPage } from './components/LegacyPage'
 import { pageTitles } from './navigation'
 
@@ -23,7 +24,9 @@ export function App() {
     {pathname === '/' && <HomeHero />}
     <main id="main-content">
       <Routes>
-        {Object.keys(pageTitles).map(path => <Route key={path} path={path} element={<LegacyPage />} />)}
+        {Object.keys(pageTitles).map(path => (
+          <Route key={path} path={path} element={path === '/' ? <LegacyPage /> : <InternalPage />} />
+        ))}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </main>
