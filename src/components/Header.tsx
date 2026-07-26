@@ -48,7 +48,6 @@ const programMenuLinks = [
 
 const directLinks = [
   ['Contact Us', '/contact-us/'],
-  ['Kreyòl', '/kreyol/'],
   ['Gallery', '/gallery/'],
 ] as const
 
