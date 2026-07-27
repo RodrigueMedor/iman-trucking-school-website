@@ -21,13 +21,13 @@ import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { pageTitles } from '../navigation'
 import { useContent } from '../contexts/ContentContext'
 
-type PageSection = {
+export type PageSection = {
   title: string
   body: string
   bullets?: string[]
 }
 
-type PageContent = {
+export type PageContent = {
   eyebrow: string
   intro: string
   sections: PageSection[]
@@ -42,7 +42,7 @@ const programOverview = [
   'Career guidance and job-placement assistance',
 ]
 
-const pageContent: Record<string, PageContent> = {
+export const pageContent: Record<string, PageContent> = {
   '/our-program/': {
     eyebrow: 'Career-focused training',
     intro: 'Build the practical knowledge, safe-driving habits and confidence required to pursue a professional Class A driving career.',
@@ -216,7 +216,7 @@ const pageContent: Record<string, PageContent> = {
   },
 }
 
-const galleryImages = [
+export const galleryImages = [
   '4Z8A0112-scaled.jpg',
   '4Z8A0189-scaled.jpg',
   '4Z8A0214-scaled.jpg',
@@ -227,7 +227,7 @@ const galleryImages = [
   '4Z8A0587-scaled.jpg',
 ].map((name) => `https://imantruckingschool.com/wp-content/uploads/2025/02/${name}`)
 
-const testimonials = [
+export const testimonials = [
   {
     quote: 'The instructors were patient, professional and focused on helping me understand every step of the process.',
     name: 'Iman Trucking School graduate',
@@ -242,7 +242,7 @@ const testimonials = [
   },
 ]
 
-const legalContent: Record<string, { intro: string; sections: PageSection[] }> = {
+export const legalContent: Record<string, { intro: string; sections: PageSection[] }> = {
   '/privacy-policy/': {
     intro: 'This notice explains how information submitted through this website may be collected, used and protected.',
     sections: [
@@ -399,15 +399,17 @@ function StandardContent({ content }: { content: PageContent }) {
 }
 
 function GalleryPage() {
+  const { content } = useContent()
+  const images = galleryImages.map((src, index) => content('gallery', `image-${index + 1}`, { section_label: `Gallery image ${index + 1}`, image_url: src }))
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f5f7fa' }}>
       <Container>
         <Grid container spacing={2}>
-          {galleryImages.map((src, index) => (
-            <Grid key={src} size={{ xs: 12, sm: 6, md: index < 2 ? 6 : 4 }}>
+          {images.map((item, index) => (
+            <Grid key={item.section_key} size={{ xs: 12, sm: 6, md: index < 2 ? 6 : 4 }}>
               <Box
                 component="img"
-                src={src}
+                src={item.image_url}
                 alt={`Iman Trucking School training and student experience ${index + 1}`}
                 loading="lazy"
                 sx={{
@@ -430,17 +432,19 @@ function GalleryPage() {
 }
 
 function TestimonialsPage() {
+  const { content } = useContent()
+  const items = testimonials.map((item, index) => content('testimonials', `testimonial-${index + 1}`, { section_label: `Testimonial ${index + 1}`, title: item.name, body: item.quote }))
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f5f7fa' }}>
       <Container>
         <Grid container spacing={3}>
-          {testimonials.map(({ quote, name }) => (
-            <Grid key={quote} size={{ xs: 12, md: 4 }}>
+          {items.map(item => (
+            <Grid key={item.section_key} size={{ xs: 12, md: 4 }}>
               <Card sx={{ height: '100%', border: '1px solid #e5e8ef', borderRadius: 3, boxShadow: '0 16px 40px rgba(7,26,51,.08)' }}>
                 <CardContent sx={{ p: 4 }}>
                   <Typography color="secondary.main" fontSize="1.4rem" letterSpacing=".15em">★★★★★</Typography>
-                  <Typography color="#26364a" fontSize="1.05rem" lineHeight={1.8} mt={2}>“{quote}”</Typography>
-                  <Typography color="primary.main" fontWeight={900} mt={3}>{name}</Typography>
+                  <Typography color="#26364a" fontSize="1.05rem" lineHeight={1.8} mt={2}>“{item.body}”</Typography>
+                  <Typography color="primary.main" fontWeight={900} mt={3}>{item.title}</Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -560,12 +564,22 @@ export function InternalPage() {
 
   const resolvedContent = content ?? (legal ? { eyebrow, intro, sections: legal.sections } : null)
   const hero = managedContent(pageKey, 'hero', { section_label: eyebrow, title, body: intro })
+  const baseSections = resolvedContent?.sections.map((section, index) => {
+    const item = managedContent(pageKey, `section-${index + 1}`, {
+      section_label: `Content section ${index + 1}`,
+      title: section.title,
+      body: section.body,
+      bullets: section.bullets?.join('\n') ?? '',
+      sort_order: index + 10,
+    })
+    return { title: item.title, body: item.body, bullets: item.bullets ? item.bullets.split('\n').map(value => value.trim()).filter(Boolean) : undefined }
+  }) ?? []
   const managedSections = entries
-    .filter(item => item.page === pageKey && item.published && item.section_key !== 'hero')
+    .filter(item => item.page === pageKey && item.published && item.section_key.startsWith('custom-'))
     .sort((a, b) => a.sort_order - b.sort_order)
     .map(item => ({ title: item.title, body: item.body, bullets: item.bullets ? item.bullets.split('\n').map(value => value.trim()).filter(Boolean) : undefined }))
   const displayContent = resolvedContent || managedSections.length
-    ? { eyebrow: hero.section_label, intro: hero.body, sections: [...(resolvedContent?.sections ?? []), ...managedSections] }
+    ? { eyebrow: hero.section_label, intro: hero.body, sections: [...baseSections, ...managedSections] }
     : null
 
   return (
