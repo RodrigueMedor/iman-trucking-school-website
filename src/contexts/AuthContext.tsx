@@ -13,6 +13,8 @@ type AuthValue = {
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
+const activityKey = 'iman-school-admin-last-activity'
+const inactivityLimit = 30 * 60 * 1000
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -39,6 +41,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     return () => data.subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (!session) return window.localStorage.removeItem(activityKey)
+    const record = () => window.localStorage.setItem(activityKey, String(Date.now()))
+    const check = () => {
+      const last = Number(window.localStorage.getItem(activityKey) || Date.now())
+      if (Date.now() - last >= inactivityLimit) void supabase?.auth.signOut()
+    }
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll', 'touchstart']
+    record()
+    events.forEach(event => window.addEventListener(event, record, { passive: true }))
+    const timer = window.setInterval(check, 30_000)
+    return () => {
+      events.forEach(event => window.removeEventListener(event, record))
+      window.clearInterval(timer)
+    }
+  }, [session])
 
   const value = useMemo<AuthValue>(() => ({
     configured: isSupabaseConfigured,

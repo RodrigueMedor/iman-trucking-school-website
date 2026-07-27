@@ -19,6 +19,8 @@ export type SchoolContent = {
 type Fallback = Partial<Omit<SchoolContent, 'id' | 'page' | 'section_key'>>
 type ContentValue = {
   entries: SchoolContent[]
+  loading: boolean
+  error: string
   refresh: () => Promise<void>
   content: (page: string, key: string, fallback?: Fallback) => SchoolContent
 }
@@ -27,14 +29,21 @@ const Context = createContext<ContentValue | null>(null)
 
 export function ContentProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<SchoolContent[]>([])
+  const [loading, setLoading] = useState(Boolean(supabase))
+  const [error, setError] = useState('')
   const refresh = async () => {
-    if (!supabase) return
-    const { data } = await supabase.from('school_content').select('*').order('page').order('sort_order')
+    if (!supabase) return setLoading(false)
+    setError('')
+    const { data, error: loadError } = await supabase.from('school_content').select('*').order('page').order('sort_order')
+    if (loadError) setError(loadError.message)
     setEntries((data as SchoolContent[] | null) ?? [])
+    setLoading(false)
   }
   useEffect(() => { void refresh() }, [])
   const value = useMemo<ContentValue>(() => ({
     entries,
+    loading,
+    error,
     refresh,
     content: (page, key, fallback = {}) => entries.find(item => item.page === page && item.section_key === key && item.published) ?? {
       id: '', page, section_key: key,
@@ -48,7 +57,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       sort_order: fallback.sort_order ?? 0,
       published: fallback.published ?? true,
     },
-  }), [entries])
+  }), [entries, loading, error])
   return <Context.Provider value={value}>{children}</Context.Provider>
 }
 

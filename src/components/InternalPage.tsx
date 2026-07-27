@@ -564,9 +564,9 @@ export function InternalPage() {
     .filter(item => item.page === pageKey && item.published && item.section_key !== 'hero')
     .sort((a, b) => a.sort_order - b.sort_order)
     .map(item => ({ title: item.title, body: item.body, bullets: item.bullets ? item.bullets.split('\n').map(value => value.trim()).filter(Boolean) : undefined }))
-  const displayContent = managedSections.length
-    ? { eyebrow: hero.section_label, intro: hero.body, sections: managedSections }
-    : resolvedContent
+  const displayContent = resolvedContent || managedSections.length
+    ? { eyebrow: hero.section_label, intro: hero.body, sections: [...(resolvedContent?.sections ?? []), ...managedSections] }
+    : null
 
   return (
     <>
