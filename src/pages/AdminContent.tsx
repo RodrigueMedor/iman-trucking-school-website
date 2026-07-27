@@ -12,6 +12,7 @@ import { contentPages } from '../config/contentPages'
 import { supabase } from '../lib/supabase'
 import { useContent, type SchoolContent } from '../contexts/ContentContext'
 import { galleryImages, legalContent, pageContent, testimonials } from '../components/InternalPage'
+import { advantages, curriculum } from '../components/HomePage'
 
 const empty: Partial<SchoolContent> = { page: 'home', section_key: 'custom-', section_label: '', title: '', body: '', bullets: '', image_url: '', button_text: '', button_url: '', sort_order: 100, published: true }
 
@@ -50,6 +51,9 @@ export function AdminContent() {
     })
     galleryImages.forEach((image_url, index) => add('gallery', `image-${index + 1}`, { section_label: `Gallery image ${index + 1}`, image_url, sort_order: index + 10 }))
     testimonials.forEach((item, index) => add('testimonials', `testimonial-${index + 1}`, { section_label: `Testimonial ${index + 1}`, title: item.name, body: item.quote, sort_order: index + 10 }))
+    advantages.forEach((item, index) => add('home', `advantage-${index + 1}`, { section_label: `Why choose item ${index + 1}`, title: item.title, body: item.text, sort_order: index + 10 }))
+    curriculum.forEach((item, index) => add('home', `curriculum-${index + 1}`, { section_label: `Curriculum item ${index + 1}`, title: item, sort_order: index + 30 }))
+    add('home', 'location', { section_label: 'Orlando campus', title: 'Train in Orlando', body: '5104 N Orange Blossom Trail, Suite 205\nOrlando, FL 32810\n\nHave questions before applying? Our team is ready to help you understand your next step.', button_text: '(888) 991-4776', button_url: 'tel:8889914776', sort_order: 80 })
     return [...entries, ...defaults.filter(item => !entries.some(entry => entry.page === item.page && entry.section_key === item.section_key))]
   }, [entries])
   const filtered = useMemo(() => inventory.filter(item => {

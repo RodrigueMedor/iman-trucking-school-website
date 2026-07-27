@@ -25,7 +25,7 @@ import WorkRoundedIcon from '@mui/icons-material/WorkRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { useContent } from '../contexts/ContentContext'
 
-const advantages = [
+export const advantages = [
   {
     icon: SchoolRoundedIcon,
     title: 'Comprehensive CDL Training',
@@ -58,7 +58,7 @@ const advantages = [
   },
 ] as const
 
-const curriculum = [
+export const curriculum = [
   'Hands-on driving experience at our facility and on public roads',
   'Pre-trip inspection preparation for the CDL skills exam',
   'Map reading, trip planning, road signs, and DOT regulations',
@@ -99,6 +99,27 @@ export function HomePage() {
     button_text: 'Open enrollment form',
     button_url: '/contact-form/',
   })
+  const location = content('home', 'location', {
+    section_label: 'ORLANDO CAMPUS',
+    title: 'Train in Orlando',
+    body: '5104 N Orange Blossom Trail, Suite 205\nOrlando, FL 32810\n\nHave questions before applying? Our team is ready to help you understand your next step.',
+    button_text: '(888) 991-4776',
+    button_url: 'tel:8889914776',
+  })
+  const advantageItems = advantages.map((item, index) => ({
+    ...item,
+    managed: content('home', `advantage-${index + 1}`, {
+      section_label: `Why choose item ${index + 1}`,
+      title: item.title,
+      body: item.text,
+      sort_order: index + 10,
+    }),
+  }))
+  const curriculumItems = curriculum.map((item, index) => content('home', `curriculum-${index + 1}`, {
+    section_label: `Curriculum item ${index + 1}`,
+    title: item,
+    sort_order: index + 30,
+  }))
   return (
     <>
       <Box component="section" sx={{ bgcolor: 'white', py: { xs: 8, md: 12 } }}>
@@ -183,8 +204,8 @@ export function HomePage() {
             </Typography>
           </Box>
           <Grid container spacing={2.5}>
-            {advantages.map(({ icon: Icon, title, text }, index) => (
-              <Grid key={title} size={{ xs: 12, sm: 6, lg: 4 }}>
+            {advantageItems.map(({ icon: Icon, managed }, index) => (
+              <Grid key={managed.section_key} size={{ xs: 12, sm: 6, lg: 4 }}>
                 <Card
                   sx={{
                     height: '100%',
@@ -202,8 +223,8 @@ export function HomePage() {
                     </Avatar>
                     <Typography color="rgba(7,26,51,.08)" fontWeight={900} fontSize="2rem">{String(index + 1).padStart(2, '0')}</Typography>
                   </Stack>
-                  <Typography variant="h6" color="primary.main" fontWeight={900} mt={2.5}>{title}</Typography>
-                  <Typography color="text.secondary" mt={1}>{text}</Typography>
+                  <Typography variant="h6" color="primary.main" fontWeight={900} mt={2.5}>{managed.title}</Typography>
+                  <Typography color="text.secondary" mt={1}>{managed.body}</Typography>
                 </Card>
               </Grid>
             ))}
@@ -230,16 +251,16 @@ export function HomePage() {
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <Stack spacing={1.35}>
-                {curriculum.map((item) => (
+                {curriculumItems.map((item) => (
                   <Stack
-                    key={item}
+                    key={item.section_key}
                     direction="row"
                     spacing={1.5}
                     alignItems="flex-start"
                     sx={{ p: 1.75, borderRadius: 2, bgcolor: 'rgba(255,255,255,.065)', border: '1px solid rgba(255,255,255,.1)' }}
                   >
                     <CheckCircleRoundedIcon sx={{ mt: .15, color: '#ff6670', flex: '0 0 auto' }} />
-                    <Typography color="rgba(255,255,255,.86)" fontWeight={650}>{item}</Typography>
+                    <Typography color="rgba(255,255,255,.86)" fontWeight={650}>{item.title}</Typography>
                   </Stack>
                 ))}
               </Stack>
@@ -276,15 +297,10 @@ export function HomePage() {
             <Grid size={{ xs: 12, md: 5 }}>
               <Paper variant="outlined" sx={{ height: '100%', p: { xs: 3.5, md: 5 }, borderColor: 'divider' }}>
                 <LocationOnRoundedIcon color="secondary" sx={{ fontSize: 38 }} />
-                <Typography component="h2" variant="h4" color="primary.main" fontWeight={900} mt={2}>Train in Orlando</Typography>
-                <Typography color="text.secondary" mt={1.5}>
-                  5104 N Orange Blossom Trail, Suite 205<br />Orlando, FL 32810
-                </Typography>
-                <Typography color="text.secondary" mt={2}>
-                  Have questions before applying? Our team is ready to help you understand your next step.
-                </Typography>
-                <Button component="a" href="tel:8889914776" variant="outlined" startIcon={<PhoneRoundedIcon />} sx={{ mt: 3 }}>
-                  (888) 991-4776
+                <Typography component="h2" variant="h4" color="primary.main" fontWeight={900} mt={2}>{location.title}</Typography>
+                <Typography color="text.secondary" mt={1.5} sx={{ whiteSpace: 'pre-line' }}>{location.body}</Typography>
+                <Button component="a" href={location.button_url || 'tel:8889914776'} variant="outlined" startIcon={<PhoneRoundedIcon />} sx={{ mt: 3 }}>
+                  {location.button_text}
                 </Button>
               </Paper>
             </Grid>
