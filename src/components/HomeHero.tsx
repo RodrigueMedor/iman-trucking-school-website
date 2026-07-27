@@ -5,6 +5,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
+import { useContent } from '../contexts/ContentContext'
 
 const trainingVideos = [
   {
@@ -18,6 +19,14 @@ const trainingVideos = [
 ] as const
 
 export function HomeHero() {
+  const { content } = useContent()
+  const hero = content('home', 'hero', {
+    section_label: 'Orlando’s career-focused CDL school',
+    title: 'Your road to a professional driving career.',
+    body: 'Build real-world driving skills with experienced instructors, hands-on Class A CDL training, and support from enrollment through graduation.',
+    button_text: 'Start your application',
+    button_url: '/contact-form/',
+  })
   const [activeVideo, setActiveVideo] = useState(0)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 
@@ -85,17 +94,17 @@ export function HomeHero() {
       <Container sx={{ position: 'relative', py: { xs: 9, md: 12 } }}>
         <Box maxWidth={700}>
           <Typography component="p" sx={{ display: 'inline-flex', px: 1.5, py: .75, mb: 2.5, border: '1px solid rgba(255,255,255,.28)', borderRadius: 20, bgcolor: 'rgba(255,255,255,.08)', backdropFilter: 'blur(8px)', fontSize: '.78rem', fontWeight: 900, letterSpacing: '.11em', textTransform: 'uppercase' }}>
-            Orlando’s career-focused CDL school
+            {hero.section_label}
           </Typography>
           <Typography component="h1" variant="h1" sx={{ color: 'white', fontSize: { xs: '3rem', sm: '4rem', md: '5.2rem' }, lineHeight: .98, maxWidth: 680 }}>
-            Your road to a professional driving career.
+            {hero.title}
           </Typography>
           <Typography sx={{ mt: 3, mb: 3.5, maxWidth: 610, color: 'rgba(255,255,255,.82)', fontSize: { xs: '1.05rem', md: '1.2rem' }, lineHeight: 1.7 }}>
-            Build real-world driving skills with experienced instructors, hands-on Class A CDL training, and support from enrollment through graduation.
+            {hero.body}
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button component={RouterLink} to="/contact-form/" variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px rgba(214,31,44,.3)' }}>
-              Start your application
+            <Button component={RouterLink} to={hero.button_url || '/contact-form/'} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px rgba(214,31,44,.3)' }}>
+              {hero.button_text}
             </Button>
             <Button component={RouterLink} to="/our-program/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>
               Explore the program

@@ -19,6 +19,7 @@ import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { pageTitles } from '../navigation'
+import { useContent } from '../contexts/ContentContext'
 
 type PageSection = {
   title: string
@@ -524,7 +525,9 @@ function PaymentPage() {
 
 export function InternalPage() {
   const { pathname } = useLocation()
+  const { entries, content: managedContent } = useContent()
   const normalized = pathname.endsWith('/') ? pathname : `${pathname}/`
+  const pageKey = normalized.replace(/^\/|\/$/g, '')
   const title = pageTitles[normalized] ?? 'Iman Trucking School'
   const content = pageContent[normalized]
   const legal = legalContent[normalized]
@@ -556,11 +559,19 @@ export function InternalPage() {
   }
 
   const resolvedContent = content ?? (legal ? { eyebrow, intro, sections: legal.sections } : null)
+  const hero = managedContent(pageKey, 'hero', { section_label: eyebrow, title, body: intro })
+  const managedSections = entries
+    .filter(item => item.page === pageKey && item.published && item.section_key !== 'hero')
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(item => ({ title: item.title, body: item.body, bullets: item.bullets ? item.bullets.split('\n').map(value => value.trim()).filter(Boolean) : undefined }))
+  const displayContent = managedSections.length
+    ? { eyebrow: hero.section_label, intro: hero.body, sections: managedSections }
+    : resolvedContent
 
   return (
     <>
-      <PageHero title={title} eyebrow={eyebrow} intro={intro} />
-      {resolvedContent && <StandardContent content={resolvedContent} />}
+      <PageHero title={hero.title || title} eyebrow={hero.section_label || eyebrow} intro={hero.body || intro} />
+      {displayContent && <StandardContent content={displayContent} />}
       {normalized === '/gallery/' && <GalleryPage />}
       {normalized === '/testimonials/' && <TestimonialsPage />}
       {normalized === '/contact-us/' && <ContactPage />}

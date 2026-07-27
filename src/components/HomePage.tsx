@@ -23,6 +23,7 @@ import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded'
 import WorkRoundedIcon from '@mui/icons-material/WorkRounded'
 import { Link as RouterLink } from 'react-router-dom'
+import { useContent } from '../contexts/ContentContext'
 
 const advantages = [
   {
@@ -71,6 +72,33 @@ function openEnrollment() {
 }
 
 export function HomePage() {
+  const { content } = useContent()
+  const overview = content('home', 'overview', {
+    section_label: 'A better way to begin your driving career',
+    title: 'Training built for the road ahead.',
+    body: 'At Iman Trucking School, we combine practical Class A CDL instruction, experienced guidance, and personalized support to help students prepare for a professional career in trucking.',
+    button_text: 'Request information',
+    button_url: '/contact-form/',
+  })
+  const why = content('home', 'why-choose', {
+    section_label: 'Why choose Iman',
+    title: 'Everything you need to train with confidence.',
+    body: 'A supportive, practical learning experience designed around the needs of aspiring professional drivers.',
+  })
+  const program = content('home', 'program', {
+    section_label: 'Class A CDL program',
+    title: 'Practical preparation for real driving responsibilities.',
+    body: 'Our program brings classroom fundamentals and hands-on practice together, helping students understand the vehicle, the rules, and the decisions professional drivers make every day.',
+    button_text: 'Explore Class A CDL',
+    button_url: '/class-a-cdl/',
+  })
+  const enrollment = content('home', 'enrollment', {
+    section_label: 'ENROLLMENT',
+    title: 'Accelerate your earnings with a CDL in just 4 weeks.',
+    body: 'Speak with admissions about upcoming classes, scheduling options, program requirements, and the support available to help you begin.',
+    button_text: 'Open enrollment form',
+    button_url: '/contact-form/',
+  })
   return (
     <>
       <Box component="section" sx={{ bgcolor: 'white', py: { xs: 8, md: 12 } }}>
@@ -79,20 +107,20 @@ export function HomePage() {
             <Grid size={{ xs: 12, md: 5 }}>
               <Chip
                 icon={<VerifiedRoundedIcon />}
-                label="A better way to begin your driving career"
+                label={overview.section_label}
                 color="secondary"
                 variant="outlined"
                 sx={{ mb: 2.5, fontWeight: 850, bgcolor: 'rgba(214,31,44,.04)' }}
               />
               <Typography component="h2" variant="h2" sx={{ fontSize: { xs: '2.25rem', md: '3.55rem' }, color: 'primary.main' }}>
-                Training built for the road ahead.
+                {overview.title}
               </Typography>
               <Typography sx={{ mt: 2.5, color: 'text.secondary', fontSize: '1.05rem' }}>
-                At Iman Trucking School, we combine practical Class A CDL instruction, experienced guidance, and personalized support to help students prepare for a professional career in trucking.
+                {overview.body}
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mt={3.5}>
                 <Button onClick={openEnrollment} variant="contained" color="secondary" endIcon={<ArrowForwardRoundedIcon />}>
-                  Request information
+                  {overview.button_text}
                 </Button>
                 <Button component={RouterLink} to="/our-program/" variant="outlined">
                   View our program
@@ -145,13 +173,13 @@ export function HomePage() {
         <Container>
           <Box textAlign="center" maxWidth={780} mx="auto" mb={{ xs: 5, md: 7 }}>
             <Typography color="secondary.main" fontWeight={900} letterSpacing=".12em" textTransform="uppercase" variant="overline">
-              Why choose Iman
+              {why.section_label}
             </Typography>
             <Typography component="h2" variant="h2" sx={{ mt: 1, fontSize: { xs: '2.15rem', md: '3.4rem' }, color: 'primary.main' }}>
-              Everything you need to train with confidence.
+              {why.title}
             </Typography>
             <Typography color="text.secondary" mt={2}>
-              A supportive, practical learning experience designed around the needs of aspiring professional drivers.
+              {why.body}
             </Typography>
           </Box>
           <Grid container spacing={2.5}>
@@ -188,16 +216,16 @@ export function HomePage() {
           <Grid container spacing={{ xs: 5, md: 9 }} alignItems="center">
             <Grid size={{ xs: 12, md: 6 }}>
               <Typography color="#ff6670" fontWeight={900} letterSpacing=".12em" textTransform="uppercase" variant="overline">
-                Class A CDL program
+                {program.section_label}
               </Typography>
               <Typography component="h2" variant="h2" sx={{ mt: 1, color: 'white', fontSize: { xs: '2.2rem', md: '3.5rem' } }}>
-                Practical preparation for real driving responsibilities.
+                {program.title}
               </Typography>
               <Typography color="rgba(255,255,255,.7)" mt={2.5} fontSize="1.05rem">
-                Our program brings classroom fundamentals and hands-on practice together, helping students understand the vehicle, the rules, and the decisions professional drivers make every day.
+                {program.body}
               </Typography>
-              <Button component={RouterLink} to="/class-a-cdl/" variant="contained" color="secondary" endIcon={<ArrowForwardRoundedIcon />} sx={{ mt: 3.5 }}>
-                Explore Class A CDL
+              <Button component={RouterLink} to={program.button_url || '/class-a-cdl/'} variant="contained" color="secondary" endIcon={<ArrowForwardRoundedIcon />} sx={{ mt: 3.5 }}>
+                {program.button_text}
               </Button>
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
@@ -235,13 +263,13 @@ export function HomePage() {
               >
                 <AutoStoriesRoundedIcon sx={{ fontSize: 42, color: 'rgba(255,255,255,.8)' }} />
                 <Typography component="h2" variant="h3" sx={{ mt: 2, color: 'white', fontSize: { xs: '2rem', md: '2.75rem' } }}>
-                  Accelerate your earnings with a CDL in just 4 weeks.
+                  {enrollment.title}
                 </Typography>
                 <Typography mt={2} color="rgba(255,255,255,.8)" maxWidth={650}>
-                  Speak with admissions about upcoming classes, scheduling options, program requirements, and the support available to help you begin.
+                  {enrollment.body}
                 </Typography>
                 <Button onClick={openEnrollment} variant="contained" sx={{ mt: 3.5, bgcolor: 'white', color: 'secondary.dark', '&:hover': { bgcolor: '#f6f7fb' } }} endIcon={<ArrowForwardRoundedIcon />}>
-                  Open enrollment form
+                  {enrollment.button_text}
                 </Button>
               </Paper>
             </Grid>
