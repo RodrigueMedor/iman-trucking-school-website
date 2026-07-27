@@ -12,6 +12,7 @@ import { AdminLayout } from './components/admin/AdminLayout'
 import { AdminLogin } from './pages/AdminLogin'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { AdminContent } from './pages/AdminContent'
+import { AdminResetPassword } from './pages/AdminResetPassword'
 
 function ScrollManager() {
   const { pathname } = useLocation()
@@ -31,6 +32,7 @@ export function App() {
     <main id="main-content">
       <Routes>
         <Route path="/admin/login/" element={<AdminLogin />} />
+        <Route path="/admin/reset-password/" element={<AdminResetPassword />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/admin/" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
