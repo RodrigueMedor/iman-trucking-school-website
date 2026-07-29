@@ -12,8 +12,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import ChatRoundedIcon from '@mui/icons-material/ChatRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import HeadsetMicRoundedIcon from '@mui/icons-material/HeadsetMicRounded'
 import SendRoundedIcon from '@mui/icons-material/SendRounded'
 
@@ -214,39 +214,39 @@ export function AdmissionsChat() {
           sx={{
             position: 'absolute',
             right: 0,
-            bottom: 68,
-            width: { xs: 'min(271px, calc(100vw - 28px))', sm: 271 },
-            minHeight: 65,
+            bottom: 78,
+            width: { xs: 'min(302px, calc(100vw - 28px))', sm: 302 },
+            minHeight: 73,
             display: 'flex',
             alignItems: 'center',
-            gap: 1.4,
-            p: '10px 34px 10px 11px',
+            gap: 1.5,
+            p: '12px 42px 12px 12px',
             border: '1px solid rgba(15,23,42,.08)',
             borderRadius: '10px',
             color: '#344054',
             '&::after': {
               content: '""',
               position: 'absolute',
-              right: 18,
-              bottom: -7,
-              width: 14,
-              height: 14,
+              right: 20,
+              bottom: -8,
+              width: 16,
+              height: 16,
               bgcolor: 'white',
               transform: 'rotate(45deg)',
               boxShadow: '3px 3px 5px rgba(15,23,42,.06)',
             },
           }}
         >
-          <Box component="img" src="https://widgets.leadconnectorhq.com/chat-widget/assets/defaultAvatar.png" alt="" sx={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+          <Box component="img" src="https://widgets.leadconnectorhq.com/chat-widget/assets/defaultAvatar.png" alt="" sx={{ flex: '0 0 auto', width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
           <Button
             aria-label="Open chat: Hi there! Have a question? Chat with us."
             onClick={() => { setOpen(true); setGreetingVisible(false) }}
-            sx={{ p: 0, minWidth: 0, color: 'inherit', textAlign: 'left', textTransform: 'none', fontSize: 16, lineHeight: 1.35, justifyContent: 'flex-start', zIndex: 1 }}
+            sx={{ p: 0, minWidth: 0, color: 'inherit', textAlign: 'left', textTransform: 'none', fontSize: 17, fontWeight: 400, lineHeight: 1.38, justifyContent: 'flex-start', zIndex: 1 }}
           >
             Hi there! Have a question?<br />Chat with us.
           </Button>
-          <IconButton aria-label="Close chat greeting" onClick={() => setGreetingVisible(false)} size="small" sx={{ position: 'absolute', top: 7, right: 7, width: 24, height: 24, zIndex: 2, color: '#667085' }}>
-            <CloseRoundedIcon sx={{ fontSize: 17 }} />
+          <IconButton aria-label="Close chat greeting" onClick={() => setGreetingVisible(false)} size="small" sx={{ position: 'absolute', top: 11, right: 10, width: 24, height: 24, zIndex: 2, color: '#111827' }}>
+            <CloseRoundedIcon sx={{ fontSize: 22, fontWeight: 300 }} />
           </IconButton>
         </Paper>
       )}
@@ -254,9 +254,9 @@ export function AdmissionsChat() {
       <Fab
         aria-label={open ? 'Close admissions chat' : 'Chat with Iman admissions'}
         onClick={() => { setOpen(value => !value); setGreetingVisible(false) }}
-        sx={{ float: 'right', width: 56, height: 56, minHeight: 56, color: 'white', bgcolor: '#2196f3', boxShadow: '0 8px 24px rgba(33,150,243,.35)', '&:hover': { bgcolor: '#1976d2' } }}
+        sx={{ float: 'right', width: 58, height: 58, minHeight: 58, color: 'white', bgcolor: '#2196f3', boxShadow: 'none', '&:hover': { bgcolor: '#1687e8' } }}
       >
-        {open ? <CloseRoundedIcon /> : <ChatRoundedIcon />}
+        {open ? <CloseRoundedIcon /> : <ForumOutlinedIcon sx={{ fontSize: 31, stroke: 'white', strokeWidth: .35 }} />}
       </Fab>
     </Box>
   )
