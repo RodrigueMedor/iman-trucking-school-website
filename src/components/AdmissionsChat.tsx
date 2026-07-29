@@ -37,6 +37,7 @@ function newSessionId() {
 
 export function AdmissionsChat() {
   const [open, setOpen] = useState(false)
+  const [greetingVisible, setGreetingVisible] = useState(true)
   const [messages, setMessages] = useState<Message[]>([welcome])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -108,7 +109,7 @@ export function AdmissionsChat() {
   }
 
   return (
-    <Box className="notranslate" translate="no" sx={{ position: 'fixed', right: { xs: 16, sm: 24 }, bottom: { xs: 16, sm: 24 }, zIndex: 1400 }}>
+    <Box className="notranslate" translate="no" sx={{ position: 'fixed', right: { xs: 14, sm: 20 }, bottom: { xs: 14, sm: 20 }, zIndex: 1400 }}>
       <Collapse in={open} unmountOnExit>
         <Paper
           role="dialog"
@@ -119,20 +120,18 @@ export function AdmissionsChat() {
             width: { xs: 'calc(100vw - 32px)', sm: 390 },
             height: { xs: 'min(650px, calc(100vh - 100px))', sm: 620 },
             maxHeight: 'calc(100vh - 100px)',
-            borderRadius: 3,
+            borderRadius: 2.5,
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            border: '1px solid rgba(8,8,95,.12)',
+            border: '1px solid rgba(15,23,42,.1)',
           }}
         >
-          <Stack direction="row" alignItems="center" spacing={1.4} sx={{ bgcolor: '#08085f', color: 'white', px: 2, py: 1.6 }}>
-            <Box sx={{ width: 42, height: 42, display: 'grid', placeItems: 'center', borderRadius: '50%', bgcolor: 'secondary.main' }}>
-              <HeadsetMicRoundedIcon />
-            </Box>
+          <Stack direction="row" alignItems="center" spacing={1.4} sx={{ bgcolor: '#2196f3', color: 'white', px: 2, py: 1.6 }}>
+            <Box component="img" src="https://widgets.leadconnectorhq.com/chat-widget/assets/defaultAvatar.png" alt="" sx={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', bgcolor: 'white' }} />
             <Box sx={{ flex: 1 }}>
-              <Typography fontWeight={900}>Iman Admissions</Typography>
-              <Typography variant="caption" color="rgba(255,255,255,.72)">AI assistant · Human help available</Typography>
+              <Typography fontWeight={800}>Iman Trucking School</Typography>
+              <Typography variant="caption" color="rgba(255,255,255,.85)">Typically replies instantly</Typography>
             </Box>
             <IconButton aria-label="Close chat" onClick={() => setOpen(false)} sx={{ color: 'white' }}><CloseRoundedIcon /></IconButton>
           </Stack>
@@ -147,7 +146,7 @@ export function AdmissionsChat() {
                       sx={{
                         alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
                         maxWidth: '86%',
-                        bgcolor: message.role === 'user' ? 'primary.main' : 'white',
+                        bgcolor: message.role === 'user' ? '#2196f3' : 'white',
                         color: message.role === 'user' ? 'white' : 'text.primary',
                         px: 1.6,
                         py: 1.2,
@@ -160,7 +159,7 @@ export function AdmissionsChat() {
                   ))}
                   {messages.length === 1 && (
                     <Stack direction="row" flexWrap="wrap" gap={0.8}>
-                      {prompts.map(prompt => <Button key={prompt} size="small" variant="outlined" onClick={() => sendMessage(prompt)}>{prompt}</Button>)}
+                      {prompts.map(prompt => <Button key={prompt} size="small" variant="outlined" onClick={() => sendMessage(prompt)} sx={{ color: '#1976d2', borderColor: 'rgba(25,118,210,.45)' }}>{prompt}</Button>)}
                     </Stack>
                   )}
                   {busy && <CircularProgress size={20} sx={{ ml: 1 }} />}
@@ -177,7 +176,7 @@ export function AdmissionsChat() {
                     fullWidth
                     inputProps={{ maxLength: 800, 'aria-label': 'Chat message' }}
                   />
-                  <IconButton type="submit" disabled={!input.trim() || busy} aria-label="Send message" color="secondary"><SendRoundedIcon /></IconButton>
+                  <IconButton type="submit" disabled={!input.trim() || busy} aria-label="Send message" sx={{ color: '#2196f3' }}><SendRoundedIcon /></IconButton>
                 </Stack>
                 <Button size="small" startIcon={<HeadsetMicRoundedIcon />} onClick={() => setHandoff(true)} sx={{ mt: 0.8 }}>
                   Connect with admissions
@@ -201,7 +200,7 @@ export function AdmissionsChat() {
                   <TextField name="question" label="How can we help?" multiline rows={3} inputProps={{ maxLength: 800 }} />
                   {error && <Alert severity="warning">{error}</Alert>}
                   <Typography variant="caption" color="text.secondary">By submitting, you agree that Iman Trucking School may contact you about your request.</Typography>
-                  <Button type="submit" variant="contained" color="secondary" disabled={busy}>{busy ? 'Sending…' : 'Request a callback'}</Button>
+                  <Button type="submit" variant="contained" disabled={busy} sx={{ bgcolor: '#2196f3', '&:hover': { bgcolor: '#1976d2' } }}>{busy ? 'Sending…' : 'Request a callback'}</Button>
                 </Stack>
               )}
             </Box>
@@ -209,8 +208,55 @@ export function AdmissionsChat() {
         </Paper>
       </Collapse>
 
-      <Fab color="secondary" variant={open ? 'circular' : 'extended'} aria-label={open ? 'Close admissions chat' : 'Chat with Iman admissions'} onClick={() => setOpen(value => !value)} sx={{ float: 'right', boxShadow: '0 12px 30px rgba(214,31,44,.35)' }}>
-        {open ? <CloseRoundedIcon /> : <><ChatRoundedIcon sx={{ mr: 1 }} /> Ask Iman</>}
+      {!open && greetingVisible && (
+        <Paper
+          elevation={8}
+          sx={{
+            position: 'absolute',
+            right: 0,
+            bottom: 68,
+            width: { xs: 'min(271px, calc(100vw - 28px))', sm: 271 },
+            minHeight: 65,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.4,
+            p: '10px 34px 10px 11px',
+            border: '1px solid rgba(15,23,42,.08)',
+            borderRadius: '10px',
+            color: '#344054',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              right: 18,
+              bottom: -7,
+              width: 14,
+              height: 14,
+              bgcolor: 'white',
+              transform: 'rotate(45deg)',
+              boxShadow: '3px 3px 5px rgba(15,23,42,.06)',
+            },
+          }}
+        >
+          <Box component="img" src="https://widgets.leadconnectorhq.com/chat-widget/assets/defaultAvatar.png" alt="" sx={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+          <Button
+            aria-label="Open chat: Hi there! Have a question? Chat with us."
+            onClick={() => { setOpen(true); setGreetingVisible(false) }}
+            sx={{ p: 0, minWidth: 0, color: 'inherit', textAlign: 'left', textTransform: 'none', fontSize: 16, lineHeight: 1.35, justifyContent: 'flex-start', zIndex: 1 }}
+          >
+            Hi there! Have a question?<br />Chat with us.
+          </Button>
+          <IconButton aria-label="Close chat greeting" onClick={() => setGreetingVisible(false)} size="small" sx={{ position: 'absolute', top: 7, right: 7, width: 24, height: 24, zIndex: 2, color: '#667085' }}>
+            <CloseRoundedIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        </Paper>
+      )}
+
+      <Fab
+        aria-label={open ? 'Close admissions chat' : 'Chat with Iman admissions'}
+        onClick={() => { setOpen(value => !value); setGreetingVisible(false) }}
+        sx={{ float: 'right', width: 56, height: 56, minHeight: 56, color: 'white', bgcolor: '#2196f3', boxShadow: '0 8px 24px rgba(33,150,243,.35)', '&:hover': { bgcolor: '#1976d2' } }}
+      >
+        {open ? <CloseRoundedIcon /> : <ChatRoundedIcon />}
       </Fab>
     </Box>
   )
