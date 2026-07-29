@@ -39,5 +39,29 @@
       };
     </script>
     <script src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async></script>
+    <script>
+      window.lc_public_js = {
+        text_widget_location_id: "N1lksBq0Yd7oxvvvwwhh",
+        text_widget_heading: "",
+        text_widget_sub_heading: "",
+        text_widget_error: "0",
+        text_widget_use_email_field: "0",
+        text_widget_settings: null,
+        text_widget_cdn_base_url: "https://widgets.leadconnectorhq.com/"
+      };
+    </script>
+    <script src="https://widgets.leadconnectorhq.com/loader.js?ver=3.0.9" id="LeadConnector.lc_text_widget-js"></script>
+    <script>
+      window.addEventListener("DOMContentLoaded", function () {
+        if (document.querySelector("chat-widget")) return;
+        var textWidget = document.createElement("chat-widget");
+        textWidget.setAttribute("location-id", window.lc_public_js.text_widget_location_id);
+        textWidget.setAttribute(
+          "use-email-field",
+          window.lc_public_js.text_widget_use_email_field === "1" ? "true" : "false"
+        );
+        document.body.appendChild(textWidget);
+      });
+    </script>
   </body>
 </html>

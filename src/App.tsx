@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Footer } from './components/Footer'
 import { EnrollmentModal } from './components/EnrollmentModal'
-import { AdmissionsChat } from './components/AdmissionsChat'
 import { Header } from './components/Header'
 import { HomeHero } from './components/HomeHero'
 import { HomePage } from './components/HomePage'
@@ -48,6 +47,5 @@ export function App() {
     </main>
     {!admin && <Footer />}
     {!admin && <EnrollmentModal />}
-    {!admin && <AdmissionsChat />}
   </>
 }
