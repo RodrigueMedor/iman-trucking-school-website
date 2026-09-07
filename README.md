@@ -59,7 +59,7 @@ For Hostinger Node.js hosting:
 
 **Start command:** `npm start`
 
-The Vite config is set up to inject these environment variables at build time, so they must be set in Hostinger before the build runs. If the build completes before the environment variables are set, rebuild the application.
+The custom `server.js` injects the Supabase credentials at runtime from the environment variables, so they don't need to be baked into the build. Just set the env vars in Hostinger and restart the application.
 # Iman Trucking School website
 
 ## AI admissions chat
