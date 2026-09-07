@@ -16,6 +16,17 @@ npm run dev
 
 ### Option 1: Static Hosting (public_html)
 
+**For static hosting, you MUST create a `.env.production` file locally before building:**
+
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-anon-key
+```
+
+Replace with your actual Supabase credentials from your Supabase project dashboard.
+
+Then build and deploy:
+
 ```bash
 npm run build
 ```
@@ -24,16 +35,7 @@ Upload the contents of `dist/` to Hostinger's `public_html/` directory. The
 build includes `.htaccess` for React routes and
 `api/send-assessment-report.php` for emailing student assessment attachments.
 
-**Before building for production**, create a `.env.production` file with:
-
-```bash
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-anon-key
-```
-
-These Supabase credentials are required for CDL login and authentication. They
-will be baked into the production build, so ensure you use the publishable
-(anon) key, not the service role key.
+**Important:** The Supabase credentials will be baked into the JavaScript bundle. Use the publishable (anon) key, not the service role key.
 
 Configure these as server-side environment variables in Hostinger (never as
 `VITE_` variables):

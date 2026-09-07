@@ -8,8 +8,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3000
 const distPath = path.resolve(__dirname, 'dist')
 
+// Read environment variables at server startup
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const supabaseKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY
+
+console.log('Environment check:')
+console.log('VITE_SUPABASE_URL:', supabaseUrl ? 'SET' : 'NOT SET')
+console.log('VITE_SUPABASE_PUBLISHABLE_KEY:', supabaseKey ? 'SET' : 'NOT SET')
 
 const configScript = supabaseUrl && supabaseKey
   ? `<script>window.__SUPABASE_URL__="${supabaseUrl}";window.__SUPABASE_KEY__="${supabaseKey}";</script>`
