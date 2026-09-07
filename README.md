@@ -14,6 +14,8 @@ npm run dev
 
 ## Production — Hostinger
 
+### Option 1: Static Hosting (public_html)
+
 ```bash
 npm run build
 ```
@@ -21,6 +23,17 @@ npm run build
 Upload the contents of `dist/` to Hostinger's `public_html/` directory. The
 build includes `.htaccess` for React routes and
 `api/send-assessment-report.php` for emailing student assessment attachments.
+
+**Before building for production**, create a `.env.production` file with:
+
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-anon-key
+```
+
+These Supabase credentials are required for CDL login and authentication. They
+will be baked into the production build, so ensure you use the publishable
+(anon) key, not the service role key.
 
 Configure these as server-side environment variables in Hostinger (never as
 `VITE_` variables):
@@ -31,6 +44,22 @@ Configure these as server-side environment variables in Hostinger (never as
 
 The Hostinger PHP installation must have the cURL extension enabled. Student
 report downloads do not require email configuration.
+
+### Option 2: Node.js Deployment
+
+For Hostinger Node.js hosting:
+
+1. **Set environment variables in Hostinger panel:**
+   - `VITE_SUPABASE_URL`: Your Supabase project URL
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`: Your Supabase publishable (anon) key
+   - `PORT`: (optional) defaults to 3000
+
+2. **Build command:** `npm run build`
+
+3. **Start command:** `npm start`
+
+The `start` script runs `vite preview` with proper host/port configuration for
+Hostinger's Node.js environment.
 # Iman Trucking School website
 
 ## AI admissions chat
