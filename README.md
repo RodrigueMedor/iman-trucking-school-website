@@ -49,17 +49,17 @@ report downloads do not require email configuration.
 
 For Hostinger Node.js hosting:
 
-1. **Set environment variables in Hostinger panel:**
-   - `VITE_SUPABASE_URL`: Your Supabase project URL
-   - `VITE_SUPABASE_PUBLISHABLE_KEY`: Your Supabase publishable (anon) key
-   - `PORT`: (optional) defaults to 3000
+**IMPORTANT:** In Hostinger's Node.js deployment panel, set these environment variables:
 
-2. **Build command:** `npm run build`
+- `VITE_SUPABASE_URL`: Your Supabase project URL (e.g., `https://your-project.supabase.co`)
+- `VITE_SUPABASE_PUBLISHABLE_KEY`: Your Supabase publishable (anon) key
+- `PORT`: (optional) defaults to 3000
 
-3. **Start command:** `npm start`
+**Build command:** `npm run build`
 
-The `start` script runs `vite preview` with proper host/port configuration for
-Hostinger's Node.js environment.
+**Start command:** `npm start`
+
+The Vite config is set up to inject these environment variables at build time, so they must be set in Hostinger before the build runs. If the build completes before the environment variables are set, rebuild the application.
 # Iman Trucking School website
 
 ## AI admissions chat

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import type { IncomingMessage } from 'node:http'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -45,8 +45,16 @@ function localAssessmentApi() {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), localAssessmentApi()],
-  resolve: { dedupe: ['react', 'react-dom'] },
-  optimizeDeps: { include: ['react', 'react-dom', 'react/jsx-runtime'] },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  
+  return {
+    plugins: [react(), localAssessmentApi()],
+    resolve: { dedupe: ['react', 'react-dom'] },
+    optimizeDeps: { include: ['react', 'react-dom', 'react/jsx-runtime'] },
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || env.SUPABASE_URL || ''),
+      'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(env.VITE_SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_PUBLISHABLE_KEY || ''),
+    }
+  }
 })
