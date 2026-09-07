@@ -50,8 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = async (userId?: string) => {
     if (!supabase || !userId) return setProfile(null)
-    const { data } = await supabase.from('profiles').select('id, full_name, role, active').eq('id', userId).maybeSingle()
-    setProfile((data as Profile | null) ?? null)
+    try {
+      const { data } = await supabase.from('profiles').select('id, full_name, role, active').eq('id', userId).maybeSingle()
+      setProfile((data as Profile | null) ?? null)
+    } catch (e) {
+      // Profiles table doesn't exist yet, set profile to null
+      setProfile(null)
+    }
   }
 
   useEffect(() => {
@@ -104,26 +109,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase) return 'Authentication has not been configured for this deployment.'
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) return error.message
-      const { data: accountProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name, role, active')
-        .eq('id', data.user.id)
-        .maybeSingle()
-      if (profileError || !accountProfile) {
-        await supabase.auth.signOut()
-        setSession(null)
+      try {
+        const { data: accountProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, full_name, role, active')
+          .eq('id', data.user.id)
+          .maybeSingle()
+        if (profileError || !accountProfile) {
+          await supabase.auth.signOut()
+          setSession(null)
+          setProfile(null)
+          return 'Your password is correct, but this account has no application role. Ask the administrator to add a profiles record for this user.'
+        }
+        if (!accountProfile.active) {
+          await supabase.auth.signOut()
+          setSession(null)
+          setProfile(null)
+          return 'This account is inactive.'
+        }
+        setSession(data.session)
+        setProfile(accountProfile as Profile)
+        return null
+      } catch (e) {
+        // Profiles table doesn't exist yet, allow login without profile check
+        setSession(data.session)
         setProfile(null)
-        return 'Your password is correct, but this account has no application role. Ask the administrator to add a profiles record for this user.'
+        return null
       }
-      if (!accountProfile.active) {
-        await supabase.auth.signOut()
-        setSession(null)
-        setProfile(null)
-        return 'This account is inactive.'
-      }
-      setSession(data.session)
-      setProfile(accountProfile as Profile)
-      return null
     },
     signOut: async () => {
       window.sessionStorage.removeItem(localSessionKey)
