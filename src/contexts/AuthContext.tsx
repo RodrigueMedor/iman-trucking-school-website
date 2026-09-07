@@ -102,8 +102,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null
       }
       if (!supabase) return 'Authentication has not been configured for this deployment.'
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      return error?.message ?? null
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) return error.message
+      const { data: accountProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, active')
+        .eq('id', data.user.id)
+        .maybeSingle()
+      if (profileError || !accountProfile) {
+        await supabase.auth.signOut()
+        setSession(null)
+        setProfile(null)
+        return 'Your password is correct, but this account has no application role. Ask the administrator to add a profiles record for this user.'
+      }
+      if (!accountProfile.active) {
+        await supabase.auth.signOut()
+        setSession(null)
+        setProfile(null)
+        return 'This account is inactive.'
+      }
+      setSession(data.session)
+      setProfile(accountProfile as Profile)
+      return null
     },
     signOut: async () => {
       window.sessionStorage.removeItem(localSessionKey)

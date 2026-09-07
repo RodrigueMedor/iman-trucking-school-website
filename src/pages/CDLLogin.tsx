@@ -43,42 +43,16 @@ export function CDLLogin() {
 
       if (!supabase) throw new Error('Use one of the configured local demo accounts.')
 
-      const { data, error: signInError } = await supabase!.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
-      })
-
-      if (signInError) throw signInError
-
-      // Check if user has a student profile
-      if (data.user) {
-        const { data: profileData, error: profileError } = await supabase!
-          .from('cdl_students')
-          .select('*')
-          .eq('user_id', data.user.id)
-          .single()
-
-        if (profileError && profileError.code !== 'PGRST116') {
-          throw profileError
-        }
-
-        // If no profile exists, create one
-        if (!profileData) {
-          const { error: createError } = await supabase!
-            .from('cdl_students')
-            .insert({
-              user_id: data.user.id,
-              first_name: data.user.user_metadata?.firstName || 'Student',
-              last_name: data.user.user_metadata?.lastName || '',
-              preferred_language: 'en',
-            })
-
-          if (createError) throw createError
-        }
-      }
-
-      // Redirect to assessment
-      navigate('/cdl-readiness')
+      const message = await signIn(formData.email, formData.password)
+      if (message) throw new Error(message)
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: accountProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, active')
+        .eq('id', user!.id)
+        .single()
+      if (profileError || !accountProfile?.active) throw new Error('Your account role could not be loaded.')
+      navigate(accountProfile.role === 'instructor' ? '/admin/cdl-instructor/' : ['admin', 'super_admin'].includes(accountProfile.role) ? '/admin/' : '/cdl-readiness/')
     } catch (err: any) {
       setError(err.message || 'Failed to sign in')
     }
