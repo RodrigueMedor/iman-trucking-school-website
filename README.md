@@ -12,11 +12,25 @@ npm install
 npm run dev
 ```
 
-## Production
+## Production — Hostinger
 
 ```bash
 npm run build
 ```
+
+Upload the contents of `dist/` to Hostinger's `public_html/` directory. The
+build includes `.htaccess` for React routes and
+`api/send-assessment-report.php` for emailing student assessment attachments.
+
+Configure these as server-side environment variables in Hostinger (never as
+`VITE_` variables):
+
+- `RESEND_API_KEY`: Resend API key used by the PHP email endpoint
+- `RESULT_EMAIL_FROM`: optional verified sender, for example
+  `Iman Trucking School <results@imanlogistics.com>`
+
+The Hostinger PHP installation must have the cURL extension enabled. Student
+report downloads do not require email configuration.
 # Iman Trucking School website
 
 ## AI admissions chat

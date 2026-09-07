@@ -42,4 +42,7 @@ export const pageTitles: Record<string, string> = {
   '/kreyol/': 'Iman Trucking School — Kreyòl',
   '/privacy-policy/': 'Privacy Policy',
   '/terms-of-use-page/': 'Terms of Use',
+  '/cdl-readiness/': 'CDL Readiness Assessment',
+  '/cdl-readiness-results/': 'CDL Readiness Results',
+  '/class-application/': 'Class Application',
 }

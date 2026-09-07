@@ -13,6 +13,15 @@ import { AdminLogin } from './pages/AdminLogin'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { AdminContent } from './pages/AdminContent'
 import { AdminResetPassword } from './pages/AdminResetPassword'
+import { CDLReadinessAssessment } from './pages/CDLReadinessAssessment'
+import { CDLReadinessResults } from './pages/CDLReadinessResults'
+import { CDLRegister } from './pages/CDLRegister'
+import { CDLLogin } from './pages/CDLLogin'
+import { ClassApplication } from './pages/ClassApplication'
+import { CDLScoreManagement } from './pages/admin/CDLScoreManagement'
+import { CDLApplications } from './pages/admin/CDLApplications'
+import { CDLEnrollments } from './pages/admin/CDLEnrollments'
+import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
 
 function ScrollManager() {
   const { pathname } = useLocation()
@@ -37,8 +46,17 @@ export function App() {
           <Route path="/admin/" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="content/" element={<AdminContent />} />
+            <Route path="cdl-scores/" element={<CDLScoreManagement />} />
+            <Route path="cdl-applications/" element={<CDLApplications />} />
+            <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
+            <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
         </Route>
+        <Route path="/cdl-register/" element={<CDLRegister />} />
+        <Route path="/cdl-login/" element={<CDLLogin />} />
+        <Route path="/cdl-readiness/" element={<CDLReadinessAssessment />} />
+        <Route path="/cdl-readiness-results/" element={<CDLReadinessResults />} />
+        <Route path="/class-application/" element={<ClassApplication />} />
         {Object.keys(pageTitles).map(path => (
           <Route key={path} path={path} element={path === '/' ? <HomePage /> : <InternalPage />} />
         ))}

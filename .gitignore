@@ -9,6 +9,7 @@ dist/
 *.log
 *.local
 *.tsbuildinfo
+.local-data/
 
 vite.config.js
 vite.config.d.ts
