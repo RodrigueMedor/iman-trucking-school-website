@@ -9,11 +9,24 @@ const PORT = process.env.PORT || 3000
 const distPath = path.resolve(__dirname, 'dist')
 
 // Read environment variables at server startup
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+let supabaseUrlRaw = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || ''
 const supabaseKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY
 
+// Sanitize Supabase URL: ensure it's origin-only (no path like /rest/v1) and no trailing slash
+let supabaseUrl = ''
+if (supabaseUrlRaw) {
+  try {
+    const u = new URL(supabaseUrlRaw.trim())
+    supabaseUrl = `${u.protocol}//${u.host}`
+  } catch (e) {
+    // Fallback: strip trailing slashes if URL constructor fails
+    supabaseUrl = supabaseUrlRaw.trim().replace(/\/+$/, '')
+  }
+}
+
 console.log('Environment check:')
-console.log('VITE_SUPABASE_URL:', supabaseUrl ? 'SET' : 'NOT SET')
+console.log('VITE_SUPABASE_URL (raw):', supabaseUrlRaw ? 'SET' : 'NOT SET')
+console.log('VITE_SUPABASE_URL (sanitized):', supabaseUrl ? supabaseUrl : 'NOT SET')
 console.log('VITE_SUPABASE_PUBLISHABLE_KEY:', supabaseKey ? 'SET' : 'NOT SET')
 
 const configScript = supabaseUrl && supabaseKey
