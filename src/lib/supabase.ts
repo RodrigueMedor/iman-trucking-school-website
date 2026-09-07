@@ -18,8 +18,9 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const url = envUrl || runtimeUrl || ''
-const key = envKey || runtimeKey || ''
+// Prefer runtime-injected values (server.js) over build-time env to avoid stale/bad build-time URLs
+const url = runtimeUrl || envUrl || ''
+const key = runtimeKey || envKey || ''
 
 export const isSupabaseConfigured = Boolean(url && key)
 export const supabase = isSupabaseConfigured
