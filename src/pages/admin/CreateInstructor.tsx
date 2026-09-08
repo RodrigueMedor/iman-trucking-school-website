@@ -55,8 +55,9 @@ export function CreateInstructor() {
         password: formData.password,
         options: {
           data: {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            full_name: `${formData.firstName} ${formData.lastName}`,
             role: 'instructor',
           },
         },
@@ -64,30 +65,10 @@ export function CreateInstructor() {
 
       if (signUpError) throw signUpError
 
-      // Create instructor profile in profiles table
-      if (data.user) {
-        const { error: profilesError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            full_name: `${formData.firstName} ${formData.lastName}`,
-            role: 'instructor',
-            active: true,
-          })
+      if (!data.user) throw new Error('Supabase did not return the new instructor account.')
 
-        if (profilesError) throw profilesError
-
-        // Create instructor record in cdl_instructors table
-        const { error: instructorError } = await supabase
-          .from('cdl_instructors')
-          .insert({
-            user_id: data.user.id,
-            display_name: `${formData.firstName} ${formData.lastName}`,
-            active: true,
-          })
-
-        if (instructorError) throw instructorError
-      }
+      // The database auth trigger atomically creates profiles, cdl_users, and
+      // cdl_instructors. Writing them again here causes duplicate primary keys.
 
       setSuccess(`Instructor account created successfully for ${formData.email}. They can now log in.`)
       setFormData({
