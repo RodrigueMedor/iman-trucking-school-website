@@ -115,12 +115,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .select('id, full_name, role, active')
           .eq('id', data.user.id)
           .maybeSingle()
+        
+        // If profile doesn't exist, try to create it from user metadata
         if (profileError || !accountProfile) {
-          await supabase.auth.signOut()
-          setSession(null)
-          setProfile(null)
-          return 'Your password is correct, but this account has no application role. Ask the administrator to add a profiles record for this user.'
+          const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User'
+          const role = data.user.user_metadata?.role || 'student'
+          
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              full_name: fullName,
+              role: role,
+              active: true,
+            })
+          
+          if (insertError) {
+            await supabase.auth.signOut()
+            setSession(null)
+            setProfile(null)
+            return 'Your password is correct, but your account profile could not be created. Please contact support.'
+          }
+          
+          // Fetch the newly created profile
+          const { data: newProfile } = await supabase
+            .from('profiles')
+            .select('id, full_name, role, active')
+            .eq('id', data.user.id)
+            .single()
+          
+          if (!newProfile?.active) {
+            await supabase.auth.signOut()
+            setSession(null)
+            setProfile(null)
+            return 'This account is inactive.'
+          }
+          
+          setSession(data.session)
+          setProfile(newProfile as Profile)
+          return null
         }
+        
         if (!accountProfile.active) {
           await supabase.auth.signOut()
           setSession(null)

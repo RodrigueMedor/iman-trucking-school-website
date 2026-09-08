@@ -50,8 +50,37 @@ export function CDLLogin() {
         .from('profiles')
         .select('role, active')
         .eq('id', user!.id)
-        .single()
-      if (profileError || !accountProfile?.active) throw new Error('Your account role could not be loaded.')
+        .maybeSingle()
+      
+      // If profile doesn't exist, try to create it from user metadata
+      if (profileError || !accountProfile) {
+        const fullName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user!.id,
+            full_name: fullName,
+            role: user?.user_metadata?.role || 'student',
+            active: true,
+          })
+        
+        if (insertError) {
+          throw new Error('Your account profile could not be created. Please contact support.')
+        }
+        
+        // Fetch the newly created profile
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .select('role, active')
+          .eq('id', user!.id)
+          .single()
+        
+        if (!newProfile?.active) throw new Error('Your account is inactive.')
+        navigate(newProfile.role === 'instructor' ? '/admin/cdl-instructor/' : ['admin', 'super_admin'].includes(newProfile.role) ? '/admin/' : '/cdl-readiness/')
+        return
+      }
+      
+      if (!accountProfile.active) throw new Error('Your account is inactive.')
       navigate(accountProfile.role === 'instructor' ? '/admin/cdl-instructor/' : ['admin', 'super_admin'].includes(accountProfile.role) ? '/admin/' : '/cdl-readiness/')
     } catch (err: any) {
       setError(err.message || 'Failed to sign in')

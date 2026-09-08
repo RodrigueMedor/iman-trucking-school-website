@@ -42,6 +42,7 @@ export function AdminDashboard() {
     [AssignmentIcon, 'Applications', 'Review class applications', '/admin/cdl-applications/'],
     [PersonAddIcon, 'Enrollments', 'Manage student enrollments', '/admin/cdl-enrollments/'],
     [PeopleIcon, 'Instructor View', 'View all student submissions', '/admin/cdl-instructor/'],
+    [PersonAddIcon, 'Create Instructor', 'Create new instructor accounts', '/admin/create-instructor/'],
   ] as const
 
   const filteredStudents = demoStudents.filter(s =>

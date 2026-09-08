@@ -63,9 +63,22 @@ export function CDLRegister() {
 
       if (signUpError) throw signUpError
 
-      // Create student profile
+      // Create student profile in both profiles and cdl_students tables
       if (data.user) {
-        const { error: profileError } = await supabase!
+        // Create profiles record
+        const { error: profilesError } = await supabase!
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            full_name: `${formData.firstName} ${formData.lastName}`,
+            role: 'student',
+            active: true,
+          })
+
+        if (profilesError) throw profilesError
+
+        // Create cdl_students record
+        const { error: studentError } = await supabase!
           .from('cdl_students')
           .insert({
             user_id: data.user.id,
@@ -74,7 +87,7 @@ export function CDLRegister() {
             preferred_language: 'en',
           })
 
-        if (profileError) throw profileError
+        if (studentError) throw studentError
       }
 
       // Redirect to assessment

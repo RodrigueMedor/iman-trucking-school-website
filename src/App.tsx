@@ -8,11 +8,13 @@ import { HomePage } from './components/HomePage'
 import { InternalPage } from './components/InternalPage'
 import { pageTitles } from './navigation'
 import { ProtectedRoute } from './components/admin/ProtectedRoute'
+import { SuperAdminRoute } from './components/admin/SuperAdminRoute'
 import { AdminLayout } from './components/admin/AdminLayout'
 import { AdminLogin } from './pages/AdminLogin'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { AdminContent } from './pages/AdminContent'
 import { AdminResetPassword } from './pages/AdminResetPassword'
+import { CreateInstructor } from './pages/admin/CreateInstructor'
 import { CDLReadinessAssessment } from './pages/CDLReadinessAssessment'
 import { CDLReadinessResults } from './pages/CDLReadinessResults'
 import { CDLRegister } from './pages/CDLRegister'
@@ -51,6 +53,9 @@ export function App() {
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
+        </Route>
+        <Route element={<SuperAdminRoute />}>
+          <Route path="/admin/create-instructor/" element={<CreateInstructor />} />
         </Route>
         <Route path="/cdl-register/" element={<CDLRegister />} />
         <Route path="/cdl-login/" element={<CDLLogin />} />
