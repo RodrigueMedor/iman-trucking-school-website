@@ -482,7 +482,7 @@ function ContactPage() {
           })}
         </Grid>
         <Card sx={{ mt: 4, overflow: 'hidden', borderRadius: 3, boxShadow: '0 20px 55px rgba(7,26,51,.11)' }}>
-          <Box component="iframe" title="Iman Trucking School location" src="https://www.google.com/maps?q=5104%20N%20Orange%20Blossom%20Trail%20Orlando%20FL%2032810&output=embed" loading="lazy" sx={{ display: 'block', width: '100%', height: 430, border: 0 }} />
+          <Box component="iframe" title="Iman Trucking School location" src="https://www.google.com/maps?q=21902%20State%20Road%2046%20Mount%20Dora%20Florida%2032757&output=embed" loading="lazy" sx={{ display: 'block', width: '100%', height: 430, border: 0 }} />
         </Card>
       </Container>
     </Box>
