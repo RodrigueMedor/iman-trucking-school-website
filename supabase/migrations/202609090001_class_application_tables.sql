@@ -32,11 +32,17 @@ drop policy if exists "Anyone can create applications" on public.cdl_class_appli
 create policy "Anyone can create applications" on public.cdl_class_applications for insert with check (true);
 drop policy if exists "Staff can read applications" on public.cdl_class_applications;
 create policy "Staff can read applications" on public.cdl_class_applications for select using (
-  exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','instructor'))
+  public.is_super_admin() or exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin','instructor','super_admin') and active = true
+  )
 );
 drop policy if exists "Staff can update applications" on public.cdl_class_applications;
 create policy "Staff can update applications" on public.cdl_class_applications for update using (
-  exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','instructor'))
+  public.is_super_admin() or exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin','instructor','super_admin') and active = true
+  )
 );
 grant select on public.cdl_courses, public.cdl_academic_sessions to anon, authenticated;
 grant insert on public.cdl_class_applications to anon, authenticated;
