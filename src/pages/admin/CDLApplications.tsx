@@ -91,15 +91,36 @@ export function CDLApplications() {
           course:cdl_courses(id, name),
           session:cdl_academic_sessions(id, name)
         `)
-        .order('createdAt', { ascending: false })
+        .order('created_at', { ascending: false })
 
       if (statusFilter) query = query.eq('status', statusFilter)
       if (searchQuery) {
-        query = query.or(`firstName.ilike.%${searchQuery}%,lastName.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+        query = query.or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
       }
 
       const { data, error } = await query
-      if (!error && data) setApplications(data as any[])
+      if (!error && data) {
+        setApplications(data.map(row => ({
+          id: row.id,
+          studentId: row.student_id,
+          courseId: row.course_id,
+          sessionId: row.session_id,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          email: row.email,
+          phone: row.phone,
+          statement: row.statement,
+          status: row.status,
+          staffNotes: row.staff_notes,
+          submittedAt: row.submitted_at,
+          reviewedAt: row.reviewed_at,
+          reviewedBy: row.reviewed_by,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          course: row.course,
+          session: row.session,
+        })))
+      }
     } catch {}
     setLoading(false)
   }
@@ -122,9 +143,9 @@ export function CDLApplications() {
           .from('cdl_class_applications')
           .update({
             status: reviewForm.status as any,
-            staffNotes: reviewForm.staffNotes,
-            reviewedAt: new Date().toISOString(),
-            reviewedBy: (await supabase!.auth.getUser()).data.user?.id,
+            staff_notes: reviewForm.staffNotes,
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: (await supabase!.auth.getUser()).data.user?.id,
           })
           .eq('id', selectedApp.id)
 

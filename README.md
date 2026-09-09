@@ -32,8 +32,9 @@ npm run build
 ```
 
 Upload the contents of `dist/` to Hostinger's `public_html/` directory. The
-build includes `.htaccess` for React routes and
-`api/send-assessment-report.php` for emailing student assessment attachments.
+build includes `.htaccess` for React routes, `api/send-assessment-report.php`
+for emailing student assessment attachments, and
+`api/send-class-application.php` for notifying admissions of new applications.
 
 **Important:** The Supabase credentials will be baked into the JavaScript bundle. Use the publishable (anon) key, not the service role key.
 
@@ -43,6 +44,9 @@ Configure these as server-side environment variables in Hostinger (never as
 - `RESEND_API_KEY`: Resend API key used by the PHP email endpoint
 - `RESULT_EMAIL_FROM`: optional verified sender, for example
   `Iman Trucking School <results@imanlogistics.com>`
+- `APPLICATION_EMAIL_TO`: optional; defaults to `info@imantruckingschool.com`
+- `APPLICATION_EMAIL_FROM`: optional verified sender for class applications;
+  falls back to `RESULT_EMAIL_FROM`
 
 The Hostinger PHP installation must have the cURL extension enabled. Student
 report downloads do not require email configuration.

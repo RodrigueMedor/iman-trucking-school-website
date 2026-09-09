@@ -39,6 +39,7 @@ export function ClassApplication() {
   const isMock = !supabase
   const [options, setOptions] = useState(fallbackOptions)
   const [state, setState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
+  const [emailWarning, setEmailWarning] = useState('')
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -51,14 +52,24 @@ export function ClassApplication() {
 
   useEffect(() => {
     if (!isMock) {
-      // In production, fetch from Supabase
-      // For now, use fallback
+      Promise.all([
+        supabase!.from('cdl_courses').select('id, name').eq('active', true).order('name'),
+        supabase!.from('cdl_academic_sessions').select('id, name').eq('open', true).order('starts_at'),
+      ]).then(([coursesResult, sessionsResult]) => {
+        if (!coursesResult.error && coursesResult.data?.length) {
+          setOptions(current => ({ ...current, courses: coursesResult.data }))
+        }
+        if (!sessionsResult.error && sessionsResult.data?.length) {
+          setOptions(current => ({ ...current, sessions: sessionsResult.data }))
+        }
+      })
     }
   }, [isMock])
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setState('saving')
+    setEmailWarning('')
 
     try {
       if (isMock) {
@@ -74,17 +85,34 @@ export function ClassApplication() {
         setState('success')
       } else {
         const { error } = await supabase!.from('cdl_class_applications').insert({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
           email: formData.email,
           phone: formData.phone || null,
-          courseId: formData.courseId,
-          sessionId: formData.sessionId,
+          course_id: formData.courseId,
+          session_id: formData.sessionId,
           statement: formData.statement || null,
           status: 'SUBMITTED',
         })
 
         if (error) throw error
+
+        const course = options.courses.find(option => option.id === formData.courseId)
+        const session = options.sessions.find(option => option.id === formData.sessionId)
+        try {
+          const response = await fetch('/api/send-class-application.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...formData,
+              courseName: course?.name || 'Not specified',
+              sessionName: session?.name || 'Not specified',
+            }),
+          })
+          if (!response.ok) throw new Error('Notification email failed')
+        } catch {
+          setEmailWarning('Your application was saved, but the email notification could not be sent. Staff can still see it in the admin portal.')
+        }
         setState('success')
       }
     } catch {
@@ -105,6 +133,7 @@ export function ClassApplication() {
               <Typography color="text.secondary" sx={{ mb: 4 }}>
                 Iman Trucking School received your application. Staff will review it and contact you by email.
               </Typography>
+              {emailWarning && <Alert severity="warning" sx={{ mb: 4, textAlign: 'left' }}>{emailWarning}</Alert>}
               <Button component={Link} to="/" variant="contained" color="secondary" size="large">
                 Return home
               </Button>
