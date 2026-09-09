@@ -53,7 +53,7 @@ export function AdminContent() {
     testimonials.forEach((item, index) => add('testimonials', `testimonial-${index + 1}`, { section_label: `Testimonial ${index + 1}`, title: item.name, body: item.quote, sort_order: index + 10 }))
     advantages.forEach((item, index) => add('home', `advantage-${index + 1}`, { section_label: `Why choose item ${index + 1}`, title: item.title, body: item.text, sort_order: index + 10 }))
     curriculum.forEach((item, index) => add('home', `curriculum-${index + 1}`, { section_label: `Curriculum item ${index + 1}`, title: item, sort_order: index + 30 }))
-    add('home', 'location', { section_label: 'Orlando campus', title: 'Train in Orlando', body: '5104 N Orange Blossom Trail, Suite 205\nOrlando, FL 32810\n\nHave questions before applying? Our team is ready to help you understand your next step.', button_text: '(888) 991-4776', button_url: 'tel:8889914776', sort_order: 80 })
+    add('home', 'location', { section_label: 'Orlando campus', title: 'Train in Orlando', body: '21902 State Road 46\nMount Dora Florida 32757\n\nHave questions before applying? Our team is ready to help you understand your next step.', button_text: '(888) 991-4776', button_url: 'tel:8889914776', sort_order: 80 })
     return [...entries, ...defaults.filter(item => !entries.some(entry => entry.page === item.page && entry.section_key === item.section_key))]
   }, [entries])
   const filtered = useMemo(() => inventory.filter(item => {

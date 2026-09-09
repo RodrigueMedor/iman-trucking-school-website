@@ -103,7 +103,7 @@ export const pageContent: Record<string, PageContent> = {
       {
         title: 'Visit the training center',
         body: 'Meet the team, learn how training is organized and discuss a schedule that works for you.',
-        bullets: ['5104 N Orange Blossom Trail, Suite 205', 'Orlando, FL 32810', 'Call (888) 991-4776'],
+        bullets: ['21902 State Road 46', 'Mount Dora Florida 32757', 'Call (888) 991-4776'],
       },
     ],
   },
@@ -461,7 +461,7 @@ function ContactPage() {
       <Container>
         <Grid container spacing={4}>
           {[
-            [LocationOnRoundedIcon, 'Visit the school', '5104 N Orange Blossom Trail, Suite 205, Orlando, FL 32810'],
+            [LocationOnRoundedIcon, 'Visit the school', '21902 State Road 46, Mount Dora Florida 32757'],
             [PhoneRoundedIcon, 'Call admissions', '(888) 991-4776'],
             [EmailRoundedIcon, 'Email the team', 'info@imanlogistics.com'],
           ].map(([Icon, title, value]) => {

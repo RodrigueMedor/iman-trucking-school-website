@@ -102,7 +102,7 @@ export function HomePage() {
   const location = content('home', 'location', {
     section_label: 'ORLANDO CAMPUS',
     title: 'Train in Orlando',
-    body: '5104 N Orange Blossom Trail, Suite 205\nOrlando, FL 32810\n\nHave questions before applying? Our team is ready to help you understand your next step.',
+    body: '21902 State Road 46\nMount Dora Florida 32757\n\nHave questions before applying? Our team is ready to help you understand your next step.',
     button_text: '(888) 991-4776',
     button_url: 'tel:8889914776',
   })

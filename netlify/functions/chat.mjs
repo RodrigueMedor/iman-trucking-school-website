@@ -9,7 +9,7 @@ Verified school information:
 - Training includes CDL knowledge and regulations, vehicle systems, safe operating practices, pre-trip inspection, backing/control skills, and road-test preparation.
 - Financing options and job-placement assistance may be available; admissions must confirm eligibility and current terms.
 - The school supports Amazon Career Choice students; admissions must confirm current authorization steps.
-- Address: 5104 N Orange Blossom Trail, Suite 205, Orlando, FL 32810.
+- Address: 21902 State Road 46, Mount Dora Florida 32757.
 - Phone: (888) 991-4776.
 - Email: info@imanlogistics.com.
 
