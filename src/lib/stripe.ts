@@ -79,12 +79,19 @@ export async function createRegistrationCheckout(
       window.location.href = url
     } else {
       // Fallback: use stripe.redirectToCheckout
-      const { error } = await stripe.redirectToCheckout({
-        sessionId,
-      })
-
-      if (error) {
-        throw new Error(error.message || 'Failed to redirect to checkout')
+      if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+        console.error('No valid sessionId returned from checkout API', responseData)
+        throw new Error('Checkout session not returned or invalid. Check network/server logs for the API response.')
+      }
+      try {
+        const { error } = await stripe.redirectToCheckout({ sessionId })
+        if (error) {
+          console.error('stripe.redirectToCheckout returned an error', error, { sessionId, responseData })
+          throw new Error(error.message || 'Failed to redirect to checkout')
+        }
+      } catch (err: any) {
+        console.error('stripe.redirectToCheckout failed', err, { sessionId, responseData })
+        throw err
       }
     }
   } catch (error) {
@@ -157,12 +164,19 @@ export async function createApplicationCheckout(
       window.location.href = url
     } else {
       // Fallback: use stripe.redirectToCheckout
-      const { error } = await stripe.redirectToCheckout({
-        sessionId,
-      })
-
-      if (error) {
-        throw new Error(error.message || 'Failed to redirect to checkout')
+      if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+        console.error('No valid sessionId returned from checkout API', responseData)
+        throw new Error('Checkout session not returned or invalid. Check network/server logs for the API response.')
+      }
+      try {
+        const { error } = await stripe.redirectToCheckout({ sessionId })
+        if (error) {
+          console.error('stripe.redirectToCheckout returned an error', error, { sessionId, responseData })
+          throw new Error(error.message || 'Failed to redirect to checkout')
+        }
+      } catch (err: any) {
+        console.error('stripe.redirectToCheckout failed', err, { sessionId, responseData })
+        throw err
       }
     }
   } catch (error) {
@@ -235,12 +249,19 @@ export async function createDispatcherCheckout(
       window.location.href = url
     } else {
       // Fallback: use stripe.redirectToCheckout
-      const { error } = await stripe.redirectToCheckout({
-        sessionId,
-      })
-
-      if (error) {
-        throw new Error(error.message || 'Failed to redirect to checkout')
+      if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+        console.error('No valid sessionId returned from checkout API', responseData)
+        throw new Error('Checkout session not returned or invalid. Check network/server logs for the API response.')
+      }
+      try {
+        const { error } = await stripe.redirectToCheckout({ sessionId })
+        if (error) {
+          console.error('stripe.redirectToCheckout returned an error', error, { sessionId, responseData })
+          throw new Error(error.message || 'Failed to redirect to checkout')
+        }
+      } catch (err: any) {
+        console.error('stripe.redirectToCheckout failed', err, { sessionId, responseData })
+        throw err
       }
     }
   } catch (error) {
