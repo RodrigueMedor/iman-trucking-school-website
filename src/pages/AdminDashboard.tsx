@@ -9,6 +9,7 @@ import PeopleIcon from '@mui/icons-material/People'
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded'
 import SchoolIcon from '@mui/icons-material/School'
 import SearchIcon from '@mui/icons-material/Search'
+import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded'
 import { Link } from 'react-router-dom'
@@ -41,6 +42,7 @@ export function AdminDashboard() {
     [SchoolIcon, 'Score Management', 'Enter and publish student scores', '/admin/cdl-scores/'],
     [AssignmentIcon, 'Applications', 'Review class applications', '/admin/cdl-applications/'],
     [PersonAddIcon, 'Enrollments', 'Manage student enrollments', '/admin/cdl-enrollments/'],
+    [BadgeRoundedIcon, 'Dispatcher Registrations', 'Review dispatcher registrations and payments', '/admin/dispatcher-registrations/'],
     [PeopleIcon, 'Instructor View', 'View all student submissions', '/admin/cdl-instructor/'],
     [PersonAddIcon, 'Create Instructor', 'Create new instructor accounts', '/admin/create-instructor/'],
   ] as const

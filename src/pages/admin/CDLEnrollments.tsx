@@ -26,12 +26,13 @@ import {
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CancelIcon from '@mui/icons-material/Cancel'
+import PendingIcon from '@mui/icons-material/Pending'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
-type Student = { id: string; firstName: string; lastName: string; user: { email: string } }
+type Student = { id: string; firstName: string; lastName: string; user: { email: string }; registrationPaymentStatus?: string }
 type Course = { id: string; name: string }
 type Session = { id: string; name: string }
 type Enrollment = {
@@ -100,7 +101,7 @@ export function CDLEnrollments() {
         .from('cdl_enrollments')
         .select(`
           *,
-          student:cdl_students(id, firstName, lastName, user:cdl_users(email)),
+          student:cdl_students(id, firstName, lastName, registration_payment_status, user:cdl_users(email)),
           course:cdl_courses(id, name),
           session:cdl_academic_sessions(id, name)
         `)
@@ -224,6 +225,30 @@ export function CDLEnrollments() {
     setStudentQuery('')
   }
 
+  function getPaymentStatusColor(status: string) {
+    switch (status) {
+      case 'paid': return 'success'
+      case 'failed': return 'error'
+      case 'canceled': return 'error'
+      case 'processing': return 'info'
+      case 'pending': return 'warning'
+      case 'refunded': return 'default'
+      default: return 'default'
+    }
+  }
+
+  function getPaymentStatusIcon(status: string) {
+    switch (status) {
+      case 'paid': return <CheckCircleIcon />
+      case 'failed': return <CancelIcon />
+      case 'canceled': return <CancelIcon />
+      case 'processing': return <PendingIcon />
+      case 'pending': return <PendingIcon />
+      case 'refunded': return <CancelIcon />
+      default: return undefined
+    }
+  }
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f7fb', py: 6 }}>
       <Container maxWidth="xl">
@@ -325,6 +350,7 @@ export function CDLEnrollments() {
                   <TableCell sx={{ fontWeight: 900 }}>Course</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Session</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Payment</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Enrolled</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Actions</TableCell>
                 </TableRow>
@@ -332,11 +358,11 @@ export function CDLEnrollments() {
               <TableBody>
                 {loading && enrollments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">Loading...</TableCell>
+                    <TableCell colSpan={7} align="center">Loading...</TableCell>
                   </TableRow>
                 ) : enrollments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">No enrollments found.</TableCell>
+                    <TableCell colSpan={7} align="center">No enrollments found.</TableCell>
                   </TableRow>
                 ) : (
                   enrollments.map(e => (
@@ -354,6 +380,18 @@ export function CDLEnrollments() {
                           color={e.active ? 'success' : 'default'}
                           size="small"
                         />
+                      </TableCell>
+                      <TableCell>
+                        {e.student.registrationPaymentStatus && e.student.registrationPaymentStatus !== 'not_required' ? (
+                          <Chip
+                            icon={getPaymentStatusIcon(e.student.registrationPaymentStatus)}
+                            label={e.student.registrationPaymentStatus}
+                            color={getPaymentStatusColor(e.student.registrationPaymentStatus) as any}
+                            size="small"
+                          />
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">—</Typography>
+                        )}
                       </TableCell>
                       <TableCell>{new Date(e.createdAt).toLocaleDateString()}</TableCell>
                       <TableCell>

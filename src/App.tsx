@@ -20,9 +20,11 @@ import { CDLReadinessResults } from './pages/CDLReadinessResults'
 import { CDLRegister } from './pages/CDLRegister'
 import { CDLLogin } from './pages/CDLLogin'
 import { ClassApplication } from './pages/ClassApplication'
+import { DispatcherRegistration } from './pages/DispatcherRegistration'
 import { CDLScoreManagement } from './pages/admin/CDLScoreManagement'
 import { CDLApplications } from './pages/admin/CDLApplications'
 import { CDLEnrollments } from './pages/admin/CDLEnrollments'
+import { DispatcherRegistrations } from './pages/admin/DispatcherRegistrations'
 import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
 
 function ScrollManager() {
@@ -51,6 +53,7 @@ export function App() {
             <Route path="cdl-scores/" element={<CDLScoreManagement />} />
             <Route path="cdl-applications/" element={<CDLApplications />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
+            <Route path="dispatcher-registrations/" element={<DispatcherRegistrations />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
         </Route>
@@ -62,6 +65,7 @@ export function App() {
         <Route path="/cdl-readiness/" element={<CDLReadinessAssessment />} />
         <Route path="/cdl-readiness-results/" element={<CDLReadinessResults />} />
         <Route path="/class-application/" element={<ClassApplication />} />
+        <Route path="/dispatcher-registration/" element={<DispatcherRegistration />} />
         {Object.keys(pageTitles).map(path => (
           <Route key={path} path={path} element={path === '/' ? <HomePage /> : <InternalPage />} />
         ))}

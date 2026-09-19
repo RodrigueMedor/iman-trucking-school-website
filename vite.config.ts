@@ -45,16 +45,43 @@ function localAssessmentApi() {
   }
 }
 
+function paymentsApiDevServer() {
+  return {
+    name: 'payments-api-dev-server',
+    async configureServer(server: any) {
+      try {
+        const { app } = await import('./server-express.js')
+        server.middlewares.use((req: any, res: any, next: any) => {
+          if (req.url && req.url.startsWith('/api/') && !req.url.startsWith('/api/dev/')) {
+            app(req, res, next)
+          } else {
+            next()
+          }
+        })
+      } catch (e) {
+        console.warn('Failed to attach payments API middleware to Vite dev server:', e)
+      }
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   
   return {
-    plugins: [react(), localAssessmentApi()],
+    plugins: [react(), localAssessmentApi(), paymentsApiDevServer()],
     resolve: { dedupe: ['react', 'react-dom'] },
     optimizeDeps: { include: ['react', 'react-dom', 'react/jsx-runtime'] },
+    server: {
+      // Direct in-server middleware handles /api, with fallback to :3001 if external
+      proxy: {
+        '/api/external-proxy-fallback': { target: 'http://localhost:3001', changeOrigin: true },
+      },
+    },
     define: {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || env.SUPABASE_URL || ''),
       'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(env.VITE_SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_PUBLISHABLE_KEY || ''),
+      'import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY': JSON.stringify(env.VITE_STRIPE_PUBLISHABLE_KEY || ''),
     }
   }
 })

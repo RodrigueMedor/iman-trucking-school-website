@@ -3,9 +3,10 @@ import { Alert, Box, Button, Card, CardContent, Checkbox, Container, FormControl
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import LocalShippingIcon from '@mui/icons-material/LocalShipping'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { getLocalSessionRole, useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { PaymentStatus } from '../components/PaymentStatus'
 import { automaticallyEvaluate, ELP_DRAFT_KEY, ElpSubmission, emptyApplicant, emptyResponses, oralQuestions, oralResponseChoices, readingPassage, readingQuestions, saveSubmission, trafficSigns, writtenChoices } from '../lib/elpAssessment'
 
 // Versioned replacement for the retired general-English mock quiz.
@@ -18,7 +19,8 @@ function ChoiceQuestion({ value, choices, onChange }: { value: string; choices: 
 }
 
 export function CDLReadinessAssessment() {
-  const navigate = useNavigate(); const { session, signOut } = useAuth()
+  const navigate = useNavigate(); const location = useLocation(); const { session, signOut } = useAuth()
+  const paymentSessionId = new URLSearchParams(location.search).get('session_id')
   const [step,setStep]=useState(0), [applicant,setApplicant]=useState(emptyApplicant), [responses,setResponses]=useState(emptyResponses)
   const [consent,setConsent]=useState(false), [attested,setAttested]=useState(false), [error,setError]=useState('')
   useEffect(()=>{ void (async()=>{if(getLocalSessionRole()!=='student'&&(!supabase||!(await supabase.auth.getUser()).data.user)) navigate('/cdl-login/')})()
@@ -29,6 +31,7 @@ export function CDLReadinessAssessment() {
   const complete=step===0?consent:step===1?responses.oral.every(Boolean):step===2?responses.signs.every(Boolean):step===3?responses.reading.every(Boolean):step===4?Object.values(responses.log).every(Boolean)&&!!responses.defects&&!!responses.licenseExpiry:attested
   const next=()=>{if(!complete)return setError('Complete every required field before continuing.');if(step===0&&!localStorage.getItem(START_KEY))localStorage.setItem(START_KEY,new Date().toISOString());setError('');setStep(s=>s+1);window.scrollTo(0,0)}
   const submit=async()=>{if(!attested)return;const started=localStorage.getItem(START_KEY);const evaluation=automaticallyEvaluate(responses,applicant.evaluatorName,applicant.evaluatorTitle);const result:ElpSubmission={id:`ELP-${Date.now().toString(36).toUpperCase()}`,applicant,responses,attested,status:'EVALUATED',evaluation,submittedAt:new Date().toISOString(),duration:started?`${Math.max(1,Math.round((Date.now()-new Date(started).getTime())/60000))} minutes`:'Not recorded'};try{await saveSubmission(result);localStorage.removeItem(ELP_DRAFT_KEY);navigate('/cdl-readiness-results/')}catch(e){setError(e instanceof Error?e.message:'The assessment could not be saved.')}}
+  if (paymentSessionId) return <PaymentStatus onContinue={() => navigate('/cdl-readiness/', { replace: true })} continueLabel="Begin assessment"/>
   return <Box sx={{minHeight:'100vh',bgcolor:'#f5f7fb',pb:8}}><Paper square sx={{bgcolor:'#08085f',color:'white',py:2}}><Container maxWidth="lg"><Stack direction="row" justifyContent="space-between" alignItems="center"><Stack direction="row" gap={1}><LocalShippingIcon/><Typography fontWeight={900}>IMAN ELP Admission Assessment</Typography></Stack><Button sx={{color:'white'}} onClick={async()=>{await signOut();navigate('/cdl-login/')}}>Log out</Button></Stack></Container></Paper><Container maxWidth="lg" sx={{mt:4}}>
     <Typography variant="h3" fontWeight={900}>English Language Proficiency Admission Assessment</Typography><Typography color="text.secondary">School-administered screening under 49 CFR §391.11(b)(2). This is not a CDL test or certification.</Typography><LinearProgress variant="determinate" value={(step+1)/steps.length*100} sx={{my:3,height:8,borderRadius:4}}/><Typography fontWeight={800} sx={{mb:2}}>Step {step+1} of {steps.length}: {steps[step]}</Typography>{error&&<Alert severity="error" sx={{mb:2}}>{error}</Alert>}
     {step===0&&<Card><CardContent sx={{p:{xs:3,md:5}}}><Alert severity="info" sx={{mb:3}}>Your account identity, date, program, and assessment record are filled automatically. There are no typed-response fields in this assessment. Allow 35–45 minutes. Questions may not be translated, simplified, or answered with coaching.</Alert><Typography fontWeight={900}>Assessment rules</Typography><Typography sx={{my:2}}>Complete every scored section independently in English. Accent alone is not a reason to fail. This school screening does not guarantee a state CDL or roadside English-proficiency determination.</Typography><FormControlLabel control={<Checkbox checked={consent} onChange={e=>setConsent(e.target.checked)}/>} label="I understand the rules and am ready to begin."/></CardContent></Card>}

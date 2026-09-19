@@ -45,4 +45,5 @@ export const pageTitles: Record<string, string> = {
   '/cdl-readiness/': 'CDL Readiness Assessment',
   '/cdl-readiness-results/': 'CDL Readiness Results',
   '/class-application/': 'Class Application',
+  '/dispatcher-registration/': 'Dispatcher Class Registration',
 }

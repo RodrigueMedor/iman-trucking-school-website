@@ -15,19 +15,24 @@ import {
   Alert,
   Paper,
   Stack,
+  CircularProgress,
 } from '@mui/material'
 import LocalShippingIcon from '@mui/icons-material/LocalShipping'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { createApplicationCheckout } from '../lib/stripe'
+import { PaymentStatus } from '../components/PaymentStatus'
+import { PaymentPolicyAgreement } from '../components/PaymentPolicyAgreement'
+import { isPaymentPolicySigned } from '../lib/paymentPolicy'
 
-type Option = { id: string; name: string }
+type Option = { id: string; name: string; application_fee_cents?: number }
 
 const fallbackOptions = {
   courses: [
-    { id: 'demo-course-1', name: 'CDL Class A Training' },
-    { id: 'demo-course-2', name: 'CDL Class B Training' },
+    { id: 'demo-course-1', name: 'CDL Class A Training', application_fee_cents: 2500 },
+    { id: 'demo-course-2', name: 'CDL Class B Training', application_fee_cents: 2500 },
   ],
   sessions: [
     { id: 'demo-session-1', name: 'Fall 2026' },
@@ -36,10 +41,18 @@ const fallbackOptions = {
 
 export function ClassApplication() {
   const navigate = useNavigate()
+  const location = useLocation()
   const isMock = !supabase
+  const paymentSessionId = new URLSearchParams(location.search).get('session_id')
   const [options, setOptions] = useState(fallbackOptions)
   const [state, setState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [emailWarning, setEmailWarning] = useState('')
+  const [paymentRequired, setPaymentRequired] = useState(false)
+  const [paymentLoading, setPaymentLoading] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
+  const [paymentPolicyAccepted, setPaymentPolicyAccepted] = useState(false)
+  const [paymentPolicySignature, setPaymentPolicySignature] = useState('')
+  const [submittedApplication, setSubmittedApplication] = useState<any>(null)
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -53,7 +66,7 @@ export function ClassApplication() {
   useEffect(() => {
     if (!isMock) {
       Promise.all([
-        supabase!.from('cdl_courses').select('id, name').eq('active', true).order('name'),
+        supabase!.from('cdl_courses').select('id, name, application_fee_cents').eq('active', true).order('name'),
         supabase!.from('cdl_academic_sessions').select('id, name').eq('open', true).order('starts_at'),
       ]).then(([coursesResult, sessionsResult]) => {
         if (!coursesResult.error && coursesResult.data?.length) {
@@ -73,18 +86,18 @@ export function ClassApplication() {
 
     try {
       if (isMock) {
-        localStorage.setItem(
-          'iman-mock-application',
-          JSON.stringify({
-            ...formData,
-            id: `APP-${Date.now()}`,
-            status: 'SUBMITTED',
-            createdAt: new Date().toISOString(),
-          })
-        )
+        const mockApp = {
+          ...formData,
+          id: `APP-${Date.now()}`,
+          status: 'SUBMITTED',
+          createdAt: new Date().toISOString(),
+        }
+        localStorage.setItem('iman-mock-application', JSON.stringify(mockApp))
+        setSubmittedApplication(mockApp)
         setState('success')
+        setPaymentRequired(false)
       } else {
-        const { error } = await supabase!.from('cdl_class_applications').insert({
+        const { data, error } = await supabase!.from('cdl_class_applications').insert({
           first_name: formData.firstName,
           last_name: formData.lastName,
           email: formData.email,
@@ -93,7 +106,7 @@ export function ClassApplication() {
           session_id: formData.sessionId,
           statement: formData.statement || null,
           status: 'SUBMITTED',
-        })
+        }).select().single()
 
         if (error) throw error
 
@@ -113,11 +126,54 @@ export function ClassApplication() {
         } catch {
           setEmailWarning('Your application was saved, but the email notification could not be sent. Staff can still see it in the admin portal.')
         }
-        setState('success')
+
+        setSubmittedApplication(data)
+        setState('idle')
+        setPaymentRequired(true)
       }
     } catch {
       setState('error')
     }
+  }
+
+  async function handlePayment() {
+    if (!submittedApplication) return
+    if (!isPaymentPolicySigned(paymentPolicyAccepted, paymentPolicySignature, formData.firstName, formData.lastName)) {
+      setPaymentError('Read the payment policy, check the box, and type your full legal name to sign before paying.')
+      return
+    }
+
+    setPaymentLoading(true)
+    setPaymentError('')
+
+    try {
+      await createApplicationCheckout(
+        submittedApplication.id,
+        formData.email,
+        formData.firstName,
+        formData.lastName,
+        formData.courseId,
+        paymentPolicyAccepted,
+        paymentPolicySignature
+      )
+    } catch (err: any) {
+      setPaymentError(err.message || 'Failed to initiate payment')
+      setPaymentLoading(false)
+    }
+  }
+
+  function skipPayment() {
+    // Allow user to proceed without payment
+    setState('success')
+  }
+
+  if (paymentSessionId) {
+    return (
+      <PaymentStatus
+        onContinue={() => setState('success')}
+        continueLabel="Continue"
+      />
+    )
   }
 
   if (state === 'success') {
@@ -137,6 +193,82 @@ export function ClassApplication() {
               <Button component={Link} to="/" variant="contained" color="secondary" size="large">
                 Return home
               </Button>
+            </CardContent>
+          </Card>
+        </Container>
+      </Box>
+    )
+  }
+
+  if (paymentRequired) {
+    const course = options.courses.find(option => option.id === formData.courseId)
+    const applicationFee = course?.application_fee_cents ? course.application_fee_cents / 100 : 25
+
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#f5f7fb' }}>
+        <Container maxWidth="md">
+          <Card sx={{ boxShadow: '0 25px 50px rgba(8,8,95,.15)', borderRadius: 4 }}>
+            <CardContent sx={{ p: { xs: 4, md: 6 }, textAlign: 'center' }}>
+              <CheckCircleIcon sx={{ fontSize: 64, color: '#4caf50', mb: 3 }} />
+              <Typography variant="h3" fontWeight={900} gutterBottom>
+                Application Submitted Successfully!
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 4 }}>
+                Thank you, {formData.firstName}! Your application has been received. Complete your application by paying the application fee or submit without payment.
+              </Typography>
+
+              {paymentError && (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                  {paymentError}
+                </Alert>
+              )}
+
+              <Stack spacing={2} sx={{ mb: 4, textAlign: 'left' }}>
+                <Alert severity="info">
+                  <Typography fontWeight="bold">Application Fee: ${applicationFee.toFixed(2)}</Typography>
+                  <Typography variant="body2">Complete your application with a secure payment after signing the policy below.</Typography>
+                </Alert>
+                <PaymentPolicyAgreement
+                  firstName={formData.firstName}
+                  lastName={formData.lastName}
+                  accepted={paymentPolicyAccepted}
+                  signature={paymentPolicySignature}
+                  onAcceptedChange={setPaymentPolicyAccepted}
+                  onSignatureChange={setPaymentPolicySignature}
+                />
+              </Stack>
+
+              <Stack spacing={2}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="large"
+                  fullWidth
+                  onClick={handlePayment}
+                  disabled={
+                    paymentLoading ||
+                    !isPaymentPolicySigned(
+                      paymentPolicyAccepted,
+                      paymentPolicySignature,
+                      formData.firstName,
+                      formData.lastName
+                    )
+                  }
+                  sx={{ py: 2 }}
+                  startIcon={paymentLoading ? <CircularProgress size={20} color="inherit" /> : undefined}
+                >
+                  {paymentLoading ? 'Processing...' : `Pay Application Fee ($${applicationFee.toFixed(2)})`}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  fullWidth
+                  onClick={skipPayment}
+                  sx={{ py: 2 }}
+                >
+                  Submit Without Payment
+                </Button>
+              </Stack>
             </CardContent>
           </Card>
         </Container>

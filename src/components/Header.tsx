@@ -49,6 +49,7 @@ const programMenuLinks = [
 const directLinks = [
   ['CDL Assessment', '/cdl-readiness/'],
   ['Apply for Training', '/class-application/'],
+  ['Dispatcher Class', '/dispatcher-registration/'],
   ['Contact Us', '/contact-us/'],
   ['Gallery', '/gallery/'],
 ] as const

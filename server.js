@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import http from 'http'
 import { URL } from 'url'
+import { app as apiApp } from './server-express.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3000
@@ -11,6 +12,7 @@ const distPath = path.resolve(__dirname, 'dist')
 // Read environment variables at server startup
 let supabaseUrlRaw = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || ''
 const supabaseKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY
+const stripePublishableKey = process.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
 
 // Sanitize Supabase URL: ensure it's origin-only (no path like /rest/v1) and no trailing slash
 let supabaseUrl = ''
@@ -28,10 +30,15 @@ console.log('Environment check:')
 console.log('VITE_SUPABASE_URL (raw):', supabaseUrlRaw ? 'SET' : 'NOT SET')
 console.log('VITE_SUPABASE_URL (sanitized):', supabaseUrl ? supabaseUrl : 'NOT SET')
 console.log('VITE_SUPABASE_PUBLISHABLE_KEY:', supabaseKey ? 'SET' : 'NOT SET')
+console.log('VITE_STRIPE_PUBLISHABLE_KEY:', stripePublishableKey ? 'SET' : 'NOT SET')
 
-const configScript = supabaseUrl && supabaseKey
-  ? `<script>window.__SUPABASE_URL__="${supabaseUrl}";window.__SUPABASE_KEY__="${supabaseKey}";</script>`
+let configScript = supabaseUrl && supabaseKey
+  ? `<script>window.__SUPABASE_URL__=${JSON.stringify(supabaseUrl)};window.__SUPABASE_KEY__=${JSON.stringify(supabaseKey)};</script>`
   : ''
+
+if (stripePublishableKey) {
+  configScript += `<script>window.__STRIPE_PUBLISHABLE_KEY__=${JSON.stringify(stripePublishableKey)};</script>`
+}
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -51,6 +58,13 @@ const mimeTypes = {
 
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url || '/', `http://${req.headers.host}`)
+
+  // Handle API routes by delegating to the Express payment/API app
+  if (parsedUrl.pathname.startsWith('/api/')) {
+    apiApp(req, res)
+    return
+  }
+
   let filePath = path.join(distPath, parsedUrl.pathname)
 
   // Serve index.html for all routes (SPA)
@@ -97,4 +111,5 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running at http://0.0.0.0:${PORT}`)
   console.log(`Supabase configured: ${!!supabaseUrl && !!supabaseKey}`)
+  console.log(`Stripe configured: ${!!stripePublishableKey}`)
 })

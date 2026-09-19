@@ -26,3 +26,16 @@ export const isSupabaseConfigured = Boolean(url && key)
 export const supabase = isSupabaseConfigured
   ? createClient(url!, key!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } })
   : null
+
+// Export runtime Stripe key for use in the app
+export const getStripePublishableKey = () => {
+  if (typeof window !== 'undefined') {
+    try {
+      const runtimeKey = (window as any).__STRIPE_PUBLISHABLE_KEY__
+      if (runtimeKey) return String(runtimeKey).trim()
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+  return import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() || ''
+}

@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Container,
   Paper,
   Stack,
@@ -21,12 +19,10 @@ import {
   InputLabel,
   Chip,
   Alert,
-  Grid,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextareaAutosize,
 } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CancelIcon from '@mui/icons-material/Cancel'
@@ -34,50 +30,70 @@ import PendingIcon from '@mui/icons-material/Pending'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 
-type Application = {
+type DispatcherRegistration = {
   id: string
-  studentId?: string
-  courseId: string
-  sessionId: string
+  registrationNo: string
   firstName: string
   lastName: string
   email: string
   phone?: string
-  statement?: string
-  status: 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
-  staffNotes?: string
-  submittedAt: string
-  reviewedAt?: string
-  reviewedBy?: string
-  createdAt: string
-  updatedAt: string
+  address1: string
+  address2?: string
+  city: string
+  state: string
+  zip: string
+  status: 'SUBMITTED' | 'CONFIRMED' | 'CANCELED'
   paymentStatus?: 'not_required' | 'pending' | 'processing' | 'paid' | 'failed' | 'canceled' | 'refunded'
   paymentId?: string
-  course: { id: string; name: string }
-  session: { id: string; name: string }
+  staffNotes?: string
+  submittedAt: string
+  className: string
+  paymentPolicySignature?: string
+  paymentPolicyAcceptedAt?: string
 }
 
-const demoCourses = [{ id: 'demo-course-1', name: 'CDL Class A Training' }]
-const demoSessions = [{ id: 'demo-session-1', name: 'Fall 2026' }]
+const mockKey = 'iman-mock-dispatcher-registrations'
 
-export function CDLApplications() {
+export function DispatcherRegistrations() {
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [applications, setApplications] = useState<Application[]>([])
-  const [courses, setCourses] = useState(demoCourses)
-  const [sessions, setSessions] = useState(demoSessions)
+  const [rows, setRows] = useState<DispatcherRegistration[]>([])
   const [reviewDialog, setReviewDialog] = useState(false)
-  const [selectedApp, setSelectedApp] = useState<Application | null>(null)
+  const [selected, setSelected] = useState<DispatcherRegistration | null>(null)
   const [reviewForm, setReviewForm] = useState({ status: '', staffNotes: '' })
 
   const isMock = !supabase
 
   useEffect(() => {
     if (isMock) {
-      const saved = localStorage.getItem('iman-mock-applications')
-      if (saved) setApplications(JSON.parse(saved))
+      const saved = localStorage.getItem(mockKey)
+      if (saved) {
+        setRows(
+          (JSON.parse(saved) as any[]).map(r => ({
+            id: r.id,
+            registrationNo: r.registration_no || r.registrationNo,
+            firstName: r.first_name || r.firstName,
+            lastName: r.last_name || r.lastName,
+            email: r.email,
+            phone: r.phone,
+            address1: r.address_line1 || r.address1,
+            address2: r.address_line2 || r.address2,
+            city: r.city,
+            state: r.state,
+            zip: r.zip_code || r.zip,
+            status: r.status,
+            paymentStatus: r.payment_status,
+            paymentId: r.payment_id,
+            staffNotes: r.staff_notes,
+            submittedAt: r.submitted_at || r.submittedAt,
+            className: r.className || '',
+            paymentPolicySignature: r.payment_policy_signature || r.paymentPolicySignature,
+            paymentPolicyAcceptedAt: r.payment_policy_accepted_at || r.paymentPolicyAcceptedAt,
+          }))
+        )
+      }
     } else {
       loadData()
     }
@@ -87,42 +103,40 @@ export function CDLApplications() {
     setLoading(true)
     try {
       let query = supabase!
-        .from('cdl_class_applications')
+        .from('cdl_dispatcher_registrations')
         .select(`
           *,
-          course:cdl_courses(id, name),
-          session:cdl_academic_sessions(id, name)
+          class:cdl_dispatcher_classes(id, name)
         `)
         .order('created_at', { ascending: false })
 
       if (statusFilter) query = query.eq('status', statusFilter)
       if (searchQuery) {
-        query = query.or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+        query = query.or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,registration_no.ilike.%${searchQuery}%`)
       }
 
       const { data, error } = await query
       if (!error && data) {
-        setApplications(data.map(row => ({
+        setRows(data.map(row => ({
           id: row.id,
-          studentId: row.student_id,
-          courseId: row.course_id,
-          sessionId: row.session_id,
+          registrationNo: row.registration_no,
           firstName: row.first_name,
           lastName: row.last_name,
           email: row.email,
           phone: row.phone,
-          statement: row.statement,
+          address1: row.address_line1,
+          address2: row.address_line2,
+          city: row.city,
+          state: row.state,
+          zip: row.zip_code,
           status: row.status,
-          staffNotes: row.staff_notes,
-          submittedAt: row.submitted_at,
-          reviewedAt: row.reviewed_at,
-          reviewedBy: row.reviewed_by,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
           paymentStatus: row.payment_status,
           paymentId: row.payment_id,
-          course: row.course,
-          session: row.session,
+          staffNotes: row.staff_notes,
+          submittedAt: row.submitted_at,
+          className: row.class?.name || '—',
+          paymentPolicySignature: row.payment_policy_signature,
+          paymentPolicyAcceptedAt: row.payment_policy_accepted_at,
         })))
       }
     } catch {}
@@ -130,35 +144,33 @@ export function CDLApplications() {
   }
 
   async function updateStatus() {
-    if (!selectedApp) return
+    if (!selected) return
     setLoading(true)
     try {
       if (isMock) {
-        const updated = applications.map(app =>
-          app.id === selectedApp.id
-            ? { ...app, status: reviewForm.status as any, staffNotes: reviewForm.staffNotes, reviewedAt: new Date().toISOString() }
-            : app
+        const updated = rows.map(r =>
+          r.id === selected.id
+            ? { ...r, status: reviewForm.status as any, staffNotes: reviewForm.staffNotes }
+            : r
         )
-        setApplications(updated)
-        localStorage.setItem('iman-mock-applications', JSON.stringify(updated))
-        setNotice('Application status updated successfully.')
+        setRows(updated)
+        setNotice('Registration status updated successfully.')
       } else {
         const { error } = await supabase!
-          .from('cdl_class_applications')
+          .from('cdl_dispatcher_registrations')
           .update({
             status: reviewForm.status as any,
             staff_notes: reviewForm.staffNotes,
-            reviewed_at: new Date().toISOString(),
-            reviewed_by: (await supabase!.auth.getUser()).data.user?.id,
+            updated_at: new Date().toISOString(),
           })
-          .eq('id', selectedApp.id)
+          .eq('id', selected.id)
 
         if (error) throw error
         await loadData()
-        setNotice('Application status updated successfully.')
+        setNotice('Registration status updated successfully.')
       }
       setReviewDialog(false)
-      setSelectedApp(null)
+      setSelected(null)
       setReviewForm({ status: '', staffNotes: '' })
     } catch {
       setNotice('An error occurred. Please try again.')
@@ -166,17 +178,16 @@ export function CDLApplications() {
     setLoading(false)
   }
 
-  function openReview(app: Application) {
-    setSelectedApp(app)
-    setReviewForm({ status: app.status, staffNotes: app.staffNotes || '' })
+  function openReview(row: DispatcherRegistration) {
+    setSelected(row)
+    setReviewForm({ status: row.status, staffNotes: row.staffNotes || '' })
     setReviewDialog(true)
   }
 
   function getStatusColor(status: string) {
     switch (status) {
-      case 'APPROVED': return 'success'
-      case 'REJECTED': return 'error'
-      case 'UNDER_REVIEW': return 'info'
+      case 'CONFIRMED': return 'success'
+      case 'CANCELED': return 'error'
       case 'SUBMITTED': return 'warning'
       default: return 'default'
     }
@@ -184,32 +195,30 @@ export function CDLApplications() {
 
   function getStatusIcon(status: string) {
     switch (status) {
-      case 'APPROVED': return <CheckCircleIcon />
-      case 'REJECTED': return <CancelIcon />
+      case 'CONFIRMED': return <CheckCircleIcon />
+      case 'CANCELED': return <CancelIcon />
       default: return <PendingIcon />
     }
   }
 
-  function getPaymentStatusColor(status: string) {
+  function getPaymentStatusColor(status?: string) {
     switch (status) {
       case 'paid': return 'success'
       case 'failed': return 'error'
       case 'canceled': return 'error'
       case 'processing': return 'info'
       case 'pending': return 'warning'
-      case 'refunded': return 'default'
       default: return 'default'
     }
   }
 
-  function getPaymentStatusIcon(status: string) {
+  function getPaymentStatusIcon(status?: string) {
     switch (status) {
       case 'paid': return <CheckCircleIcon />
       case 'failed': return <CancelIcon />
       case 'canceled': return <CancelIcon />
       case 'processing': return <PendingIcon />
       case 'pending': return <PendingIcon />
-      case 'refunded': return <CancelIcon />
       default: return undefined
     }
   }
@@ -222,7 +231,7 @@ export function CDLApplications() {
             <Button component={Link} to="/admin/" sx={{ mb: 2 }}>
               ← Dashboard
             </Button>
-            <Typography variant="h3" fontWeight={900}>Class Applications</Typography>
+            <Typography variant="h3" fontWeight={900}>Dispatcher Registrations</Typography>
           </Box>
         </Stack>
 
@@ -230,7 +239,7 @@ export function CDLApplications() {
           <Stack direction={{ xs: 'column', md: 'row' }} gap={2}>
             <TextField
               fullWidth
-              placeholder="Search by name or email..."
+              placeholder="Search by name, email, or registration number..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
@@ -243,9 +252,8 @@ export function CDLApplications() {
               >
                 <MenuItem value="">All Statuses</MenuItem>
                 <MenuItem value="SUBMITTED">Submitted</MenuItem>
-                <MenuItem value="UNDER_REVIEW">Under Review</MenuItem>
-                <MenuItem value="APPROVED">Approved</MenuItem>
-                <MenuItem value="REJECTED">Rejected</MenuItem>
+                <MenuItem value="CONFIRMED">Confirmed</MenuItem>
+                <MenuItem value="CANCELED">Canceled</MenuItem>
               </Select>
             </FormControl>
           </Stack>
@@ -258,9 +266,9 @@ export function CDLApplications() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 900 }}>Applicant</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Course</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Session</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Registration #</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Registrant</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Class</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Status</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Payment</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Submitted</TableCell>
@@ -272,47 +280,45 @@ export function CDLApplications() {
                   <TableRow>
                     <TableCell colSpan={7} align="center">Loading...</TableCell>
                   </TableRow>
-                ) : applications.length === 0 ? (
+                ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">No applications found.</TableCell>
+                    <TableCell colSpan={7} align="center">No dispatcher registrations found.</TableCell>
                   </TableRow>
                 ) : (
-                  applications.map(app => (
-                    <TableRow key={app.id}>
+                  rows.map(row => (
+                    <TableRow key={row.id}>
                       <TableCell>
-                        <Typography fontWeight="bold">{app.firstName} {app.lastName}</Typography>
-                        <Typography variant="body2" color="text.secondary">{app.email}</Typography>
-                        {app.phone && <Typography variant="body2" color="text.secondary">{app.phone}</Typography>}
+                        <Typography fontWeight="bold">{row.registrationNo}</Typography>
                       </TableCell>
-                      <TableCell>{app.course.name}</TableCell>
-                      <TableCell>{app.session.name}</TableCell>
+                      <TableCell>
+                        <Typography fontWeight="bold">{row.firstName} {row.lastName}</Typography>
+                        <Typography variant="body2" color="text.secondary">{row.email}</Typography>
+                        {row.phone && <Typography variant="body2" color="text.secondary">{row.phone}</Typography>}
+                      </TableCell>
+                      <TableCell>{row.className}</TableCell>
                       <TableCell>
                         <Chip
-                          icon={getStatusIcon(app.status)}
-                          label={app.status}
-                          color={getStatusColor(app.status) as any}
+                          icon={getStatusIcon(row.status)}
+                          label={row.status}
+                          color={getStatusColor(row.status) as any}
                           size="small"
                         />
                       </TableCell>
                       <TableCell>
-                        {app.paymentStatus && app.paymentStatus !== 'not_required' ? (
+                        {row.paymentStatus && row.paymentStatus !== 'not_required' ? (
                           <Chip
-                            icon={getPaymentStatusIcon(app.paymentStatus)}
-                            label={app.paymentStatus}
-                            color={getPaymentStatusColor(app.paymentStatus) as any}
+                            icon={getPaymentStatusIcon(row.paymentStatus)}
+                            label={row.paymentStatus}
+                            color={getPaymentStatusColor(row.paymentStatus) as any}
                             size="small"
                           />
                         ) : (
                           <Typography variant="body2" color="text.secondary">—</Typography>
                         )}
                       </TableCell>
-                      <TableCell>{new Date(app.submittedAt).toLocaleDateString()}</TableCell>
+                      <TableCell>{new Date(row.submittedAt).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => openReview(app)}
-                        >
+                        <Button size="small" variant="outlined" onClick={() => openReview(row)}>
                           Review
                         </Button>
                       </TableCell>
@@ -325,31 +331,36 @@ export function CDLApplications() {
         </Paper>
 
         <Dialog open={reviewDialog} onClose={() => setReviewDialog(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Review Application</DialogTitle>
+          <DialogTitle>Review Dispatcher Registration</DialogTitle>
           <DialogContent>
-            {selectedApp && (
+            {selected && (
               <Stack spacing={2} sx={{ mt: 2 }}>
-                <Typography><strong>Applicant:</strong> {selectedApp.firstName} {selectedApp.lastName}</Typography>
-                <Typography><strong>Email:</strong> {selectedApp.email}</Typography>
-                <Typography><strong>Course:</strong> {selectedApp.course.name}</Typography>
-                <Typography><strong>Session:</strong> {selectedApp.session.name}</Typography>
-                {selectedApp.paymentStatus && selectedApp.paymentStatus !== 'not_required' && (
+                <Typography><strong>Registration #:</strong> {selected.registrationNo}</Typography>
+                <Typography><strong>Registrant:</strong> {selected.firstName} {selected.lastName}</Typography>
+                <Typography><strong>Email:</strong> {selected.email}</Typography>
+                {selected.phone && <Typography><strong>Phone:</strong> {selected.phone}</Typography>}
+                <Typography>
+                  <strong>Address:</strong> {selected.address1}
+                  {selected.address2 ? `, ${selected.address2}` : ''}, {selected.city}, {selected.state} {selected.zip}
+                </Typography>
+                <Typography><strong>Class:</strong> {selected.className}</Typography>
+                {selected.paymentPolicySignature && (
+                  <Typography>
+                    <strong>Payment policy signature:</strong> {selected.paymentPolicySignature}
+                    {selected.paymentPolicyAcceptedAt
+                      ? ` (${new Date(selected.paymentPolicyAcceptedAt).toLocaleString()})`
+                      : ''}
+                  </Typography>
+                )}
+                {selected.paymentStatus && selected.paymentStatus !== 'not_required' && (
                   <Box>
                     <Typography fontWeight="bold" gutterBottom>Payment Status:</Typography>
                     <Chip
-                      icon={getPaymentStatusIcon(selectedApp.paymentStatus)}
-                      label={selectedApp.paymentStatus}
-                      color={getPaymentStatusColor(selectedApp.paymentStatus) as any}
+                      icon={getPaymentStatusIcon(selected.paymentStatus)}
+                      label={selected.paymentStatus}
+                      color={getPaymentStatusColor(selected.paymentStatus) as any}
                       size="small"
                     />
-                  </Box>
-                )}
-                {selectedApp.statement && (
-                  <Box>
-                    <Typography fontWeight="bold" gutterBottom>Statement:</Typography>
-                    <Typography variant="body2" sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1 }}>
-                      {selectedApp.statement}
-                    </Typography>
                   </Box>
                 )}
                 <FormControl fullWidth>
@@ -360,9 +371,8 @@ export function CDLApplications() {
                     label="Status"
                   >
                     <MenuItem value="SUBMITTED">Submitted</MenuItem>
-                    <MenuItem value="UNDER_REVIEW">Under Review</MenuItem>
-                    <MenuItem value="APPROVED">Approved</MenuItem>
-                    <MenuItem value="REJECTED">Rejected</MenuItem>
+                    <MenuItem value="CONFIRMED">Confirmed</MenuItem>
+                    <MenuItem value="CANCELED">Canceled</MenuItem>
                   </Select>
                 </FormControl>
                 <TextField
@@ -387,3 +397,5 @@ export function CDLApplications() {
     </Box>
   )
 }
+
+export default DispatcherRegistrations
