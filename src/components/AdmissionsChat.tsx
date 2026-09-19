@@ -16,6 +16,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import HeadsetMicRoundedIcon from '@mui/icons-material/HeadsetMicRounded'
 import SendRoundedIcon from '@mui/icons-material/SendRounded'
+import { getApiUrl } from '../lib/api'
 
 type Role = 'user' | 'assistant'
 type Message = { role: Role; content: string }
@@ -51,7 +52,8 @@ export function AdmissionsChat() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   })
 
-  async function sendMessage(text: string) {
+
+async function sendMessage(text: string) {
     const clean = text.trim()
     if (!clean || busy) return
     const next = [...messages, { role: 'user' as const, content: clean }]
@@ -62,7 +64,7 @@ export function AdmissionsChat() {
     scrollToLatest()
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(getApiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'chat', sessionId, messages: next.slice(-12) }),
@@ -84,7 +86,7 @@ export function AdmissionsChat() {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(getApiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

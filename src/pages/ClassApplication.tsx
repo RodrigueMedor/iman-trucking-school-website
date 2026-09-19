@@ -23,6 +23,7 @@ import ErrorIcon from '@mui/icons-material/Error'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { createApplicationCheckout } from '../lib/stripe'
+import { getApiUrl } from '../lib/api'
 import { PaymentStatus } from '../components/PaymentStatus'
 import { PaymentPolicyAgreement } from '../components/PaymentPolicyAgreement'
 import { isPaymentPolicySigned } from '../lib/paymentPolicy'
@@ -113,7 +114,7 @@ export function ClassApplication() {
         const course = options.courses.find(option => option.id === formData.courseId)
         const session = options.sessions.find(option => option.id === formData.sessionId)
         try {
-          const response = await fetch('/api/send-class-application.php', {
+          const response = await fetch(getApiUrl('/api/send-class-application.php'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

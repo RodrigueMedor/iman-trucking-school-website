@@ -112,7 +112,7 @@ export async function saveSubmission(submission: ElpSubmission) {
   localStorage.setItem(ELP_SUBMISSIONS_KEY, JSON.stringify(next))
   localStorage.setItem(ELP_RESULT_KEY, JSON.stringify(submission))
   if (import.meta.env.DEV) {
-    await fetch('/api/dev/elp-submissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submission) })
+    await fetch(getApiUrl('/api/dev/elp-submissions'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submission) })
   } else if (supabase) {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
@@ -126,7 +126,7 @@ export async function loadSubmissions(): Promise<ElpSubmission[]> {
   const local: ElpSubmission[] = JSON.parse(localStorage.getItem(ELP_SUBMISSIONS_KEY) || '[]')
   try {
     if (import.meta.env.DEV) {
-      const response = await fetch('/api/dev/elp-submissions')
+      const response = await fetch(getApiUrl('/api/dev/elp-submissions'))
       if (response.ok) return await response.json()
     } else if (supabase) {
       const { data, error } = await supabase.from('elp_submissions').select('*').order('submitted_at', { ascending: false })
@@ -136,3 +136,4 @@ export async function loadSubmissions(): Promise<ElpSubmission[]> {
   return local
 }
 import { supabase } from './supabase'
+import { getApiUrl } from './api'

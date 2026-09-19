@@ -1,5 +1,6 @@
 import { loadStripe } from '@stripe/stripe-js'
 import { getStripePublishableKey } from './supabase'
+import { getApiUrl } from './api'
 
 const publishableKey = getStripePublishableKey()
 const stripePromise = publishableKey ? loadStripe(publishableKey) : null
@@ -25,7 +26,7 @@ export async function createRegistrationCheckout(
   paymentPolicySignature: string
 ) {
   try {
-    const response = await fetch('/api/create-registration-checkout', {
+    const response = await fetch(getApiUrl('/api/create-registration-checkout'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -41,11 +42,36 @@ export async function createRegistrationCheckout(
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Failed to create checkout session')
+      const contentType = response.headers.get('content-type') || ''
+      let errorBody: any = {}
+      if (contentType.includes('application/json')) {
+        try {
+          errorBody = await response.json()
+        } catch (e) {
+          errorBody = { error: await response.text() }
+        }
+      } else {
+        const text = await response.text()
+        errorBody = { error: text }
+      }
+      throw new Error(errorBody.error || 'Failed to create checkout session')
     }
 
-    const { sessionId, url } = await response.json()
+    // Safely parse JSON response, but tolerate non-JSON (e.g., HTML 404 pages)
+    let responseData: any
+    const ct = response.headers.get('content-type') || ''
+    if (ct.includes('application/json')) {
+      responseData = await response.json().catch(() => ({}))
+    } else {
+      const text = await response.text()
+      try {
+        responseData = JSON.parse(text)
+      } catch {
+        responseData = { url: undefined, sessionId: undefined, raw: text }
+      }
+    }
+
+    const { sessionId, url } = responseData
     const stripe = await getStripe()
 
     // Redirect to Stripe Checkout
@@ -77,7 +103,7 @@ export async function createApplicationCheckout(
   paymentPolicySignature: string
 ) {
   try {
-    const response = await fetch('/api/create-application-checkout', {
+    const response = await fetch(getApiUrl('/api/create-application-checkout'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -94,11 +120,36 @@ export async function createApplicationCheckout(
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Failed to create checkout session')
+      const contentType = response.headers.get('content-type') || ''
+      let errorBody: any = {}
+      if (contentType.includes('application/json')) {
+        try {
+          errorBody = await response.json()
+        } catch (e) {
+          errorBody = { error: await response.text() }
+        }
+      } else {
+        const text = await response.text()
+        errorBody = { error: text }
+      }
+      throw new Error(errorBody.error || 'Failed to create checkout session')
     }
 
-    const { sessionId, url } = await response.json()
+    // Safely parse JSON response, but tolerate non-JSON (e.g., HTML 404 pages)
+    let responseData: any
+    const ct = response.headers.get('content-type') || ''
+    if (ct.includes('application/json')) {
+      responseData = await response.json().catch(() => ({}))
+    } else {
+      const text = await response.text()
+      try {
+        responseData = JSON.parse(text)
+      } catch {
+        responseData = { url: undefined, sessionId: undefined, raw: text }
+      }
+    }
+
+    const { sessionId, url } = responseData
     const stripe = await getStripe()
 
     // Redirect to Stripe Checkout
@@ -130,7 +181,7 @@ export async function createDispatcherCheckout(
   paymentPolicySignature: string
 ) {
   try {
-    const response = await fetch('/api/create-dispatcher-checkout', {
+    const response = await fetch(getApiUrl('/api/create-dispatcher-checkout'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -147,11 +198,36 @@ export async function createDispatcherCheckout(
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Failed to create checkout session')
+      const contentType = response.headers.get('content-type') || ''
+      let errorBody: any = {}
+      if (contentType.includes('application/json')) {
+        try {
+          errorBody = await response.json()
+        } catch (e) {
+          errorBody = { error: await response.text() }
+        }
+      } else {
+        const text = await response.text()
+        errorBody = { error: text }
+      }
+      throw new Error(errorBody.error || 'Failed to create checkout session')
     }
 
-    const { sessionId, url } = await response.json()
+    // Safely parse JSON response, but tolerate non-JSON (e.g., HTML 404 pages)
+    let responseData: any
+    const ct = response.headers.get('content-type') || ''
+    if (ct.includes('application/json')) {
+      responseData = await response.json().catch(() => ({}))
+    } else {
+      const text = await response.text()
+      try {
+        responseData = JSON.parse(text)
+      } catch {
+        responseData = { url: undefined, sessionId: undefined, raw: text }
+      }
+    }
+
+    const { sessionId, url } = responseData
     const stripe = await getStripe()
 
     // Redirect to Stripe Checkout
@@ -187,7 +263,7 @@ export async function createDispatcherRegistration(registration: {
 }) {
   let response: Response
   try {
-    response = await fetch('/api/create-dispatcher-registration', {
+    response = await fetch(getApiUrl('/api/create-dispatcher-registration'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(registration),
