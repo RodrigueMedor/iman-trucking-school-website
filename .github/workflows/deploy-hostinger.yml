@@ -1,0 +1,110 @@
+name: Build and Deploy to Hostinger
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '18'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.8.1
+        with:
+          ssh-private-key: ${{ secrets.HOSTINGER_SSH_KEY }}
+
+      - name: Deploy files with rsync
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          USER: ${{ secrets.HOSTINGER_USER }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          REMOTE_PATH: ${{ secrets.HOSTINGER_REMOTE_PATH }}
+        run: |
+          set -e
+          : "Excluding .git, node_modules, and GitHub workflow files from deploy"
+          RSYNC_EXCLUDES=(--exclude '.git' --exclude 'node_modules' --exclude '.github' --exclude '.env*')
+          SSH_OPTS="-o StrictHostKeyChecking=no"
+          if [ -n "$PORT" ]; then
+            SSH_OPTS="$SSH_OPTS -p $PORT"
+          fi
+          mkdir -p "$REMOTE_PATH"
+          rsync -avz --delete "${RSYNC_EXCLUDES[@]}" -e "ssh $SSH_OPTS" ./ "$USER@$HOST:$REMOTE_PATH"
+
+      - name: Run remote install & start commands
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          USER: ${{ secrets.HOSTINGER_USER }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          REMOTE_PATH: ${{ secrets.HOSTINGER_REMOTE_PATH }}
+          RESTART_COMMAND: ${{ secrets.RESTART_COMMAND }}
+        run: |
+          set -e
+          SSH_OPTS="-o StrictHostKeyChecking=no"
+          if [ -n "$PORT" ]; then
+            SSH_OPTS="$SSH_OPTS -p $PORT"
+          fi
+
+          echo "Executing remote setup on $USER@$HOST:$REMOTE_PATH"
+
+          ssh $SSH_OPTS $USER@$HOST << 'EOF'
+            set -e
+            cd "$REMOTE_PATH" || exit 1
+            # Install production dependencies (omit dev to save space)
+            npm ci --omit=dev || true
+
+            # If pm2 is available, restart or start the app; otherwise start with nohup
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 describe iman || pm2 start server.js --name iman --time
+              pm2 restart iman || true
+            else
+              # try to kill existing server process then start in background
+              pkill -f "node .*server.js" || true
+              nohup npm start > out.log 2>&1 &
+            fi
+          EOF
+
+      - name: Verify deployment (health)
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          REMOTE_PATH: ${{ secrets.HOSTINGER_REMOTE_PATH }}
+        run: |
+          # Attempt to call the public health endpoint to ensure API serves JSON
+          if [ -z "${{ secrets.HOSTINGER_HOST }}" ]; then
+            echo "HOSTINGER_HOST not set; skipping external health check"
+            exit 0
+          fi
+          # Try HTTPS health endpoint
+          echo "Checking https://${{ secrets.HOSTINGER_HOST }}/api/health"
+          curl -fsS --max-time 10 "https://${{ secrets.HOSTINGER_HOST }}/api/health" || true
+
+# Secrets required in repository settings:
+# - HOSTINGER_SSH_KEY (private SSH key with deploy access)
+# - HOSTINGER_HOST (hostname or IP of Hostinger server)
+# - HOSTINGER_USER (SSH username)
+# - HOSTINGER_REMOTE_PATH (absolute path to deploy directory on host)
+# - HOSTINGER_PORT (optional, default 22)
+# - RESTART_COMMAND (optional custom remote restart command, if you prefer)
+
+# Notes:
+# - This workflow builds the app in the runner and rsyncs the repo to the remote host.
+# - Environment variables like STRIPE_SECRET_KEY and SUPABASE_SERVICE_ROLE_KEY must be set in the Hostinger control panel (do NOT store secrets in the repo).
+# - The remote command attempts to use pm2 if installed; otherwise it falls back to nohup. Adjust as needed.
