@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --force",
     "build": "tsc -b && vite build",
+    "postinstall": "npm run build",
     "preview": "vite preview",
     "start": "node server.js",
     "start:api": "node server-express.js"
