@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import Stripe from 'stripe'
 import { Resend } from 'resend'
+import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { pathToFileURL } from 'node:url'
@@ -49,6 +50,23 @@ const dispatcherEmailFrom =
   process.env.DISPATCHER_EMAIL_FROM ||
   process.env.RESULT_EMAIL_FROM ||
   'Iman Trucking School <info@imanlogistics.com>'
+
+// Best-effort SMS sender for payment notifications. Used only if all three
+// Twilio env vars are configured on the server.
+let twilioClient = null
+const twilioFromNumber = process.env.TWILIO_FROM_NUMBER
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && twilioFromNumber) {
+  try {
+    twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+  } catch (error) {
+    console.error('Failed to initialize Twilio:', error)
+  }
+}
+
+// Staff recipients for payment notifications. Email defaults to the existing
+// admissions address; SMS is skipped entirely (not an error) when unset.
+const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@imantruckingschool.com'
+const adminNotificationPhone = process.env.ADMIN_NOTIFICATION_PHONE || null
 
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
@@ -221,6 +239,8 @@ app.get('/api/health', (req, res) => {
       stripe: !!stripe,
       webhook: !!webhookSecret,
       database: !!supabase,
+      email: !!resend,
+      sms: !!twilioClient,
   })
 })
 
@@ -1167,7 +1187,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
 }
 
 async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
-  if (!payment || payment.status === 'succeeded' || payment.status === 'refunded') return
+  if (!payment?.id || payment.status === 'succeeded' || payment.status === 'refunded') return
 
   // Validate the amount and currency the user actually paid on the backend
   const expectedAmount = typeof payment.metadata?.expected_amount === 'number'
@@ -1191,65 +1211,184 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
     return
   }
 
-  await supabase
+  // Atomic state transition: the UPDATE's WHERE clause only matches a row
+  // that is not already succeeded/refunded, so two webhook deliveries racing
+  // on the same payment can never both "win" this update. Only the caller
+  // that receives a row back is responsible for marking related records and
+  // sending notifications - this is what makes retries/duplicate Stripe
+  // events safe against duplicate emails/SMS.
+  const succeededAt = new Date().toISOString()
+  const { data: updatedRows } = await supabase
     .from('cdl_payments')
     .update({
       status: 'succeeded',
-      succeeded_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      succeeded_at: succeededAt,
+      updated_at: succeededAt,
     })
     .eq('id', payment.id)
+    .neq('status', 'succeeded')
+    .neq('status', 'refunded')
+    .select()
 
-  await markRelatedRecord(payment, { registration: 'paid', application: 'paid', dispatcher: 'paid' })
+  const updated = updatedRows?.[0]
+  if (!updated) return // already finalized by a concurrent/earlier webhook delivery
 
-  // Send a confirmation email for successful dispatcher registrations
-  if (payment.payment_type === 'dispatcher') {
-    await sendDispatcherConfirmation(payment)
+  const finalizedPayment = { ...payment, ...updated }
+
+  await markRelatedRecord(finalizedPayment, { registration: 'paid', application: 'paid', dispatcher: 'paid' })
+  await sendPaymentNotifications(finalizedPayment)
+}
+
+// ---------------------------------------------------------------------------
+// Payment notifications - email (Resend) and SMS (Twilio) for both the
+// paying student/applicant and school admissions staff. Best-effort: a
+// failure here never fails the webhook response or blocks the payment
+// record from being marked succeeded.
+// ---------------------------------------------------------------------------
+
+function buildNotificationContext(payment) {
+  const md = payment.metadata || {}
+  const firstName = md.firstName || ''
+  const lastName = md.lastName || ''
+  const name = `${firstName} ${lastName}`.trim() || 'Customer'
+  const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
+  const program =
+    payment.payment_type === 'dispatcher'
+      ? md.className || 'Dispatcher Training'
+      : payment.payment_type === 'application'
+        ? md.courseName || 'CDL Training Course'
+        : 'CDL Student Registration'
+  const transactionId = payment.stripe_payment_intent_id || payment.stripe_checkout_session_id || payment.id
+  const date = new Date(payment.succeeded_at || Date.now()).toLocaleString('en-US', {
+    dateStyle: 'long',
+    timeStyle: 'short',
+  })
+  return {
+    firstName,
+    name,
+    amount,
+    program,
+    registrationNo: md.registration_no || null,
+    transactionId,
+    date,
+    status: 'Paid',
   }
 }
 
-async function sendDispatcherConfirmation(payment) {
-  if (!resend || !payment?.customer_email) return
+// Payment rows only carry a phone number indirectly, via the linked
+// student/application/dispatcher-registration row, so SMS looks it up
+// on demand rather than storing a copy on cdl_payments.
+async function getRecipientPhone(payment) {
   try {
-    const { data: registration } = await supabase
-      .from('cdl_dispatcher_registrations')
-      .select('*, class:cdl_dispatcher_classes(name, starts_at)')
-      .eq('id', payment.dispatcher_registration_id)
-      .maybeSingle()
-
-    const registrationNo = registration?.registration_no || payment.metadata?.registration_no || ''
-    const className = registration?.class?.name || payment.metadata?.className || 'Dispatcher Training'
-    const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
-    const startDate = registration?.class?.starts_at
-      ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'long' })
-      : 'Rolling enrollment'
-
-    await resend.emails.send({
-      from: dispatcherEmailFrom,
-      to: payment.customer_email,
-      subject: `Dispatcher Class Registration Confirmed - ${registrationNo}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #08085f;">Dispatcher Class Registration Confirmed</h2>
-          <p>Dear ${registration?.first_name || 'Student'},</p>
-          <p>Thank you for registering for <strong>${className}</strong> at Iman Trucking School. Your registration is confirmed.</p>
-          <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Class:</strong> ${className}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Starts:</strong> ${startDate}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Payment Status:</strong> Paid</p>
-          </div>
-          <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
-            <strong>Registration Policy:</strong> ${DISPATCHER_PAYMENT_POLICY_TEXT}
-          </div>
-          <p>Please keep this email for your records. Admissions will contact you with class logistics before the session begins.</p>
-          <p>Best regards,<br>Iman Trucking School</p>
-        </div>
-      `,
-    })
+    if (payment.payment_type === 'registration' && payment.student_id) {
+      const { data } = await supabase.from('cdl_students').select('phone').eq('id', payment.student_id).maybeSingle()
+      return data?.phone || null
+    }
+    if (payment.payment_type === 'application' && payment.application_id) {
+      const { data } = await supabase
+        .from('cdl_class_applications')
+        .select('phone')
+        .eq('id', payment.application_id)
+        .maybeSingle()
+      return data?.phone || null
+    }
+    if (payment.payment_type === 'dispatcher' && payment.dispatcher_registration_id) {
+      const { data } = await supabase
+        .from('cdl_dispatcher_registrations')
+        .select('phone')
+        .eq('id', payment.dispatcher_registration_id)
+        .maybeSingle()
+      return data?.phone || null
+    }
   } catch (error) {
-    console.error('Failed to send dispatcher confirmation email:', error)
+    console.error('Failed to look up recipient phone for SMS:', error)
+  }
+  return null
+}
+
+function paymentNotificationEmailHtml(ctx, { forAdmin }) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #08085f;">${forAdmin ? 'New Payment Received' : 'Payment Confirmation'}</h2>
+      <p>${
+        forAdmin
+          ? `A payment was received from <strong>${ctx.name}</strong>.`
+          : `Dear ${ctx.firstName || 'Student'}, thank you for your payment to Iman Trucking School.`
+      }</p>
+      <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Name:</strong> ${ctx.name}</p>
+        <p style="margin: 8px 0 0 0;"><strong>Program/Class:</strong> ${ctx.program}</p>
+        <p style="margin: 8px 0 0 0;"><strong>Amount:</strong> ${ctx.amount}</p>
+        <p style="margin: 8px 0 0 0;"><strong>Payment Status:</strong> ${ctx.status}</p>
+        <p style="margin: 8px 0 0 0;"><strong>Transaction ID:</strong> ${ctx.transactionId}</p>
+        <p style="margin: 8px 0 0 0;"><strong>Date:</strong> ${ctx.date}</p>
+        ${ctx.registrationNo ? `<p style="margin: 8px 0 0 0;"><strong>Registration Number:</strong> ${ctx.registrationNo}</p>` : ''}
+      </div>
+      <p>Best regards,<br>Iman Trucking School</p>
+    </div>
+  `
+}
+
+function paymentNotificationSmsText(ctx, { forAdmin }) {
+  return forAdmin
+    ? `Iman Trucking School: payment received from ${ctx.name} for ${ctx.program}, ${ctx.amount}. Txn ${ctx.transactionId}.`
+    : `Iman Trucking School: your payment of ${ctx.amount} for ${ctx.program} was received. Thank you, ${ctx.firstName || 'there'}!`
+}
+
+async function sendPaymentNotifications(payment) {
+  const ctx = buildNotificationContext(payment)
+
+  if (resend && payment.customer_email) {
+    try {
+      await resend.emails.send({
+        from: dispatcherEmailFrom,
+        to: payment.customer_email,
+        subject: `Payment Confirmed${ctx.registrationNo ? ` - ${ctx.registrationNo}` : ''}`,
+        html: paymentNotificationEmailHtml(ctx, { forAdmin: false }),
+      })
+    } catch (error) {
+      console.error('Failed to send student confirmation email:', error)
+    }
+  }
+
+  if (resend) {
+    try {
+      await resend.emails.send({
+        from: dispatcherEmailFrom,
+        to: adminNotificationEmail,
+        subject: `New payment received - ${ctx.program}`,
+        html: paymentNotificationEmailHtml(ctx, { forAdmin: true }),
+      })
+    } catch (error) {
+      console.error('Failed to send admin payment notification email:', error)
+    }
+  }
+
+  if (twilioClient) {
+    const phone = await getRecipientPhone(payment)
+    if (phone) {
+      try {
+        await twilioClient.messages.create({
+          to: phone,
+          from: twilioFromNumber,
+          body: paymentNotificationSmsText(ctx, { forAdmin: false }),
+        })
+      } catch (error) {
+        console.error('Failed to send student payment SMS:', error)
+      }
+    }
+
+    if (adminNotificationPhone) {
+      try {
+        await twilioClient.messages.create({
+          to: adminNotificationPhone,
+          from: twilioFromNumber,
+          body: paymentNotificationSmsText(ctx, { forAdmin: true }),
+        })
+      } catch (error) {
+        console.error('Failed to send admin payment SMS:', error)
+      }
+    }
   }
 }
 
