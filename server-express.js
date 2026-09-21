@@ -793,6 +793,32 @@ app.post('/api/create-dispatcher-checkout', async (req, res) => {
       return res.status(409).json({ error: 'Class does not match the registration' })
     }
 
+    // Enforce seat capacity at the moment of payment, not just at browse
+    // time. seat_capacity is nullable (null = unlimited), so only enforce
+    // when a real capacity is set. This also catches the edge case where
+    // a class was closed/filled after the registrant started but before
+    // they paid.
+    if (registrationRow.class_id) {
+      const { data: capacityClass } = await supabase
+        .from('cdl_dispatcher_classes')
+        .select('seat_capacity')
+        .eq('id', registrationRow.class_id)
+        .maybeSingle()
+
+      if (capacityClass?.seat_capacity != null) {
+        const { count: seatsTaken } = await supabase
+          .from('cdl_dispatcher_registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('class_id', registrationRow.class_id)
+          .eq('payment_status', 'paid')
+          .neq('status', 'CANCELED')
+
+        if ((seatsTaken || 0) >= capacityClass.seat_capacity) {
+          return res.status(409).json({ error: 'This class is full.' })
+        }
+      }
+    }
+
     const policyError = dispatcherPolicyError(
       req.body,
       registrationRow.first_name || firstName,
