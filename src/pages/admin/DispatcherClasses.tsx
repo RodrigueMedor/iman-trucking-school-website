@@ -141,6 +141,10 @@ export function DispatcherClasses() {
       return
     }
 
+    if (form.priceDollars.trim() === '') {
+      setFormError('Enter a valid price.')
+      return
+    }
     const priceCents = Math.round(Number(form.priceDollars) * 100)
     if (!Number.isFinite(priceCents) || priceCents < 0) {
       setFormError('Enter a valid price.')

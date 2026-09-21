@@ -94,6 +94,19 @@ grant select on public.cdl_dispatcher_classes_admin to authenticated;
 
 -- Staff CRUD on the base table. The admin page writes through this table
 -- directly and reads through cdl_dispatcher_classes_admin above.
+-- Staff can read every class (open or closed) directly on the base table,
+-- not just through cdl_dispatcher_classes_admin — needed so existing pages
+-- like the dispatcher-registrations admin list (which joins this table
+-- under the staff user's own RLS session) keep showing the class name
+-- once a class is closed.
+drop policy if exists "Staff can read all dispatcher classes" on public.cdl_dispatcher_classes;
+create policy "Staff can read all dispatcher classes" on public.cdl_dispatcher_classes for select using (
+  public.is_super_admin() or exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'instructor', 'super_admin') and active = true
+  )
+);
+
 drop policy if exists "Staff can insert dispatcher classes" on public.cdl_dispatcher_classes;
 create policy "Staff can insert dispatcher classes" on public.cdl_dispatcher_classes for insert with check (
   public.is_super_admin() or exists (
