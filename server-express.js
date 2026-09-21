@@ -869,21 +869,53 @@ app.post('/api/create-dispatcher-checkout', async (req, res) => {
         .eq('id', pendingPayment.id)
     }
 
-    // Fee comes from the dispatcher class the registrant chose
+    // Fee, status, deadline, and seat capacity all come from the dispatcher
+    // class the registrant chose, never from the client, so none of these
+    // can be tampered with or bypassed.
     let dispatcherClass = null
     const isFeeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(feeClassId)
     if (isFeeUuid) {
       const { data } = await supabase
         .from('cdl_dispatcher_classes')
-        .select('price_cents, name')
+        .select('price_cents, name, status, registration_deadline, seat_capacity')
         .eq('id', feeClassId)
         .maybeSingle()
       dispatcherClass = data
     }
 
-    // Dispatcher tuition is fixed by current school policy ($520.00). Do not trust a
-    // stale client value or a database row that has not received the migration.
-    const dispatcherFeeCents = 52000
+    // A class explicitly marked FULL/CLOSED/COMPLETED cannot be paid for.
+    // A class with no status set (pre-migration rows) is treated as open,
+    // matching the migration's backfill of status = 'OPEN' for open = true.
+    if (dispatcherClass?.status && dispatcherClass.status !== 'OPEN') {
+      return res.status(409).json({ error: 'This class session is no longer accepting registrations.' })
+    }
+
+    if (dispatcherClass?.registration_deadline && new Date(dispatcherClass.registration_deadline) < new Date()) {
+      return res.status(409).json({ error: 'The registration deadline for this class has passed.' })
+    }
+
+    // Enforce seat capacity at the moment of payment, not just at browse
+    // time. seat_capacity is nullable (null = unlimited), so only enforce
+    // when a real capacity is set. This also catches the edge case where
+    // a class was closed/filled after the registrant started but before
+    // they paid.
+    if (dispatcherClass?.seat_capacity != null) {
+      const { count: seatsTaken } = await supabase
+        .from('cdl_dispatcher_registrations')
+        .select('id', { count: 'exact', head: true })
+        .eq('class_id', feeClassId)
+        .eq('payment_status', 'paid')
+        .neq('status', 'CANCELED')
+
+      if ((seatsTaken || 0) >= dispatcherClass.seat_capacity) {
+        return res.status(409).json({ error: 'This class is full.' })
+      }
+    }
+
+    // Price comes from the class's own price_cents; the $520 fallback only
+    // applies when the class row itself could not be found (defensive, not
+    // an override of a real price).
+    const dispatcherFeeCents = dispatcherClass?.price_cents ?? 52000
     const className = dispatcherClass?.name || 'Dispatcher Training'
 
     // Validate payment amount

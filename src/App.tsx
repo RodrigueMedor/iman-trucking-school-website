@@ -25,6 +25,7 @@ import { CDLScoreManagement } from './pages/admin/CDLScoreManagement'
 import { CDLApplications } from './pages/admin/CDLApplications'
 import { CDLEnrollments } from './pages/admin/CDLEnrollments'
 import { DispatcherRegistrations } from './pages/admin/DispatcherRegistrations'
+import { DispatcherClasses } from './pages/admin/DispatcherClasses'
 import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
 
 function ScrollManager() {
@@ -54,6 +55,7 @@ export function App() {
             <Route path="cdl-applications/" element={<CDLApplications />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="dispatcher-registrations/" element={<DispatcherRegistrations />} />
+            <Route path="dispatcher-classes/" element={<DispatcherClasses />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
         </Route>
