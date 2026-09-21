@@ -1243,7 +1243,7 @@ async function sendDispatcherConfirmation(payment) {
   try {
     const { data: registration } = await supabase
       .from('cdl_dispatcher_registrations')
-      .select('*, class:cdl_dispatcher_classes(name, starts_at)')
+      .select('*, class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)')
       .eq('id', payment.dispatcher_registration_id)
       .maybeSingle()
 
@@ -1253,6 +1253,14 @@ async function sendDispatcherConfirmation(payment) {
     const startDate = registration?.class?.starts_at
       ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'long' })
       : 'Rolling enrollment'
+    const endDate = registration?.class?.ends_at
+      ? new Date(registration.class.ends_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : null
+    const location = registration?.class?.location || 'To be announced'
+    const scheduleNotes = registration?.class?.schedule_notes
+    const signedAt = registration?.payment_policy_accepted_at
+      ? new Date(registration.payment_policy_accepted_at).toLocaleString('en-US')
+      : null
 
     await resend.emails.send({
       from: dispatcherEmailFrom,
@@ -1267,11 +1275,15 @@ async function sendDispatcherConfirmation(payment) {
             <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
             <p style="margin: 8px 0 0 0;"><strong>Class:</strong> ${className}</p>
             <p style="margin: 8px 0 0 0;"><strong>Starts:</strong> ${startDate}</p>
+            ${endDate ? `<p style="margin: 8px 0 0 0;"><strong>Ends:</strong> ${endDate}</p>` : ''}
+            <p style="margin: 8px 0 0 0;"><strong>Location:</strong> ${location}</p>
+            ${scheduleNotes ? `<p style="margin: 8px 0 0 0;"><strong>Schedule:</strong> ${scheduleNotes}</p>` : ''}
             <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
             <p style="margin: 8px 0 0 0;"><strong>Payment Status:</strong> Paid</p>
           </div>
           <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
             <strong>Registration Policy:</strong> ${DISPATCHER_PAYMENT_POLICY_TEXT}
+            ${signedAt ? `<br><br><strong>Electronically signed by:</strong> ${registration.payment_policy_signature || ''} on ${signedAt} (policy version ${registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION})` : ''}
           </div>
           <p>Please keep this email for your records. Admissions will contact you with class logistics before the session begins.</p>
           <p>Best regards,<br>Iman Trucking School</p>
