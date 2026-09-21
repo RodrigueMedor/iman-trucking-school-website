@@ -7,16 +7,13 @@ import {
   Container,
   Grid,
   TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Typography,
   Alert,
   Paper,
   Stack,
   CircularProgress,
   Divider,
+  Chip,
 } from '@mui/material'
 import LocalShippingIcon from '@mui/icons-material/LocalShipping'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -38,7 +35,18 @@ import {
 } from '../components/DispatcherPolicyAgreement'
 import { isPaymentPolicySigned } from '../lib/paymentPolicy'
 
-type DispatcherClass = { id: string; name: string; description?: string; price_cents?: number }
+type DispatcherClass = {
+  id: string
+  name: string
+  description?: string
+  price_cents?: number
+  starts_at?: string
+  ends_at?: string
+  location?: string
+  schedule_notes?: string
+  seat_capacity?: number | null
+  seats_remaining?: number | null
+}
 
 const fallbackClasses: DispatcherClass[] = [
   {
@@ -46,6 +54,12 @@ const fallbackClasses: DispatcherClass[] = [
     name: 'Dispatcher Training — Rolling Enrollment 2026',
     description: 'Entry-level freight and fleet dispatcher certification training.',
     price_cents: 52000,
+    starts_at: '2026-01-01T00:00:00Z',
+    ends_at: '2026-12-31T23:59:59Z',
+    location: 'Iman Trucking School — Orlando, FL Campus',
+    schedule_notes: 'Rolling enrollment — contact admissions for the next start date.',
+    seat_capacity: null,
+    seats_remaining: null,
   },
 ]
 
@@ -118,13 +132,12 @@ export function DispatcherRegistration() {
   useEffect(() => {
     if (!isMock) {
       supabase!
-        .from('cdl_dispatcher_classes')
-        .select('id, name, description, price_cents')
-        .eq('open', true)
-        .order('name')
+        .from('cdl_dispatcher_classes_public')
+        .select('id, name, description, price_cents, starts_at, ends_at, location, schedule_notes, seat_capacity, seats_remaining')
+        .order('starts_at')
         .then(({ data, error }) => {
           if (!error && data?.length) {
-            setClasses(data.map(item => ({ ...item, price_cents: 52000 })) as DispatcherClass[])
+            setClasses(data as DispatcherClass[])
           }
         })
     }
@@ -610,20 +623,62 @@ export function DispatcherRegistration() {
                   />
                 </Grid>
                 <Grid size={12}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Dispatcher class</InputLabel>
-                    <Select
-                      value={formData.classId}
-                      onChange={e => setFormData({ ...formData, classId: e.target.value })}
-                      label="Dispatcher class"
-                    >
-                      {classes.map(c => (
-                        <MenuItem key={c.id} value={c.id}>
-                          {c.name} — ${(c.price_cents != null ? c.price_cents / 100 : 520).toFixed(2)}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Typography fontWeight={900} sx={{ mb: 1.5 }}>Select a class session</Typography>
+                  <Stack spacing={2}>
+                    {classes.map(c => {
+                      const classPrice = c.price_cents != null ? c.price_cents / 100 : 520
+                      const isFull = c.seat_capacity != null && (c.seats_remaining ?? 0) <= 0
+                      const isSelected = formData.classId === c.id
+                      const startLabel = c.starts_at
+                        ? new Date(c.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+                        : 'Rolling enrollment'
+                      const endLabel = c.ends_at
+                        ? new Date(c.ends_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+                        : null
+                      return (
+                        <Paper
+                          key={c.id}
+                          variant="outlined"
+                          onClick={() => !isFull && setFormData({ ...formData, classId: c.id })}
+                          sx={{
+                            p: 2.5,
+                            borderRadius: 3,
+                            cursor: isFull ? 'not-allowed' : 'pointer',
+                            opacity: isFull ? 0.55 : 1,
+                            borderColor: isSelected ? 'secondary.main' : 'divider',
+                            borderWidth: isSelected ? 2 : 1,
+                            bgcolor: isSelected ? '#fff5f5' : 'transparent',
+                          }}
+                        >
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5}>
+                            <Box>
+                              <Typography fontWeight={900}>{c.name}</Typography>
+                              {c.description && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                  {c.description}
+                                </Typography>
+                              )}
+                              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1 }}>
+                                <Chip size="small" label={endLabel ? `${startLabel} – ${endLabel}` : startLabel} />
+                                {c.location && <Chip size="small" label={c.location} />}
+                                {c.schedule_notes && <Chip size="small" label={c.schedule_notes} />}
+                                {c.seat_capacity != null && (
+                                  <Chip
+                                    size="small"
+                                    color={isFull ? 'error' : 'success'}
+                                    label={isFull ? 'Class full' : `${c.seats_remaining} seat${c.seats_remaining === 1 ? '' : 's'} left`}
+                                  />
+                                )}
+                              </Stack>
+                            </Box>
+                            <Typography variant="h6" fontWeight={950} color="secondary.main" whiteSpace="nowrap">
+                              ${classPrice.toFixed(2)}
+                            </Typography>
+                          </Stack>
+                        </Paper>
+                      )
+                    })}
+                  </Stack>
                 </Grid>
                 <Grid size={12}>
                   <Button
