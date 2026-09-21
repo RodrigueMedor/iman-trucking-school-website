@@ -49,6 +49,7 @@ const dispatcherEmailFrom =
   process.env.DISPATCHER_EMAIL_FROM ||
   process.env.RESULT_EMAIL_FROM ||
   'Iman Trucking School <info@imanlogistics.com>'
+const dispatcherNotifyEmail = process.env.DISPATCHER_NOTIFY_EMAIL || 'info@imantruckingschool.com'
 
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
@@ -1228,9 +1229,12 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
 
   await markRelatedRecord(payment, { registration: 'paid', application: 'paid', dispatcher: 'paid' })
 
-  // Send a confirmation email for successful dispatcher registrations
+  // Send confirmation + department notification emails for successful
+  // dispatcher registrations. Each call is independently guarded so a
+  // failure in one never blocks the other or payment finalization.
   if (payment.payment_type === 'dispatcher') {
     await sendDispatcherConfirmation(payment)
+    await sendDispatcherDepartmentNotification(payment)
   }
 }
 
@@ -1276,6 +1280,68 @@ async function sendDispatcherConfirmation(payment) {
     })
   } catch (error) {
     console.error('Failed to send dispatcher confirmation email:', error)
+  }
+}
+
+async function sendDispatcherDepartmentNotification(payment) {
+  if (!resend) return
+  try {
+    const { data: registration } = await supabase
+      .from('cdl_dispatcher_registrations')
+      .select('*, class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)')
+      .eq('id', payment.dispatcher_registration_id)
+      .maybeSingle()
+
+    if (!registration) return
+
+    const registrationNo = registration.registration_no || payment.metadata?.registration_no || ''
+    const className = registration.class?.name || payment.metadata?.className || 'Dispatcher Training'
+    const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
+    const startDate = registration.class?.starts_at
+      ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : 'Rolling enrollment'
+    const endDate = registration.class?.ends_at
+      ? new Date(registration.class.ends_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : null
+    const location = registration.class?.location || 'Not specified'
+    const scheduleNotes = registration.class?.schedule_notes || 'Not specified'
+    const signedAt = registration.payment_policy_accepted_at
+      ? new Date(registration.payment_policy_accepted_at).toLocaleString('en-US')
+      : 'Not recorded'
+
+    await resend.emails.send({
+      from: dispatcherEmailFrom,
+      to: dispatcherNotifyEmail,
+      subject: `New Dispatcher Registration Paid - ${registrationNo}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #08085f;">New Paid Dispatcher Registration</h2>
+          <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Student:</strong> ${registration.first_name} ${registration.last_name}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Email:</strong> ${registration.email}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Phone:</strong> ${registration.phone || 'Not provided'}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Address:</strong> ${registration.address_line1}${registration.address_line2 ? `, ${registration.address_line2}` : ''}, ${registration.city}, ${registration.state} ${registration.zip_code}</p>
+          </div>
+          <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Class:</strong> ${className}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Starts:</strong> ${startDate}</p>
+            ${endDate ? `<p style="margin: 8px 0 0 0;"><strong>Ends:</strong> ${endDate}</p>` : ''}
+            <p style="margin: 8px 0 0 0;"><strong>Location:</strong> ${location}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Schedule:</strong> ${scheduleNotes}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
+          </div>
+          <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
+            <strong>Policy signature:</strong> ${registration.payment_policy_signature || 'Not recorded'}<br>
+            <strong>Accepted at:</strong> ${signedAt}<br>
+            <strong>Policy version:</strong> ${registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION}
+          </div>
+          <p>Review this registration in the <a href="${process.env.APP_URL || process.env.PUBLIC_SITE_URL || ''}/admin/dispatcher-registrations/">admin dashboard</a>.</p>
+        </div>
+      `,
+    })
+  } catch (error) {
+    console.error('Failed to send dispatcher department notification email:', error)
   }
 }
 
