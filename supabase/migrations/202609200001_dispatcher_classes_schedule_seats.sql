@@ -2,9 +2,9 @@
 --
 -- Adds location/schedule/seat fields to cdl_dispatcher_classes and two
 -- read-only views that compute live seat availability:
---   - cdl_dispatcher_classes_public: OPEN classes only, for the public
---     registration page. Never exposes registration rows/PII, only an
---     aggregated count.
+--   - cdl_dispatcher_classes_public: OPEN, UPCOMING classes only (ends_at is
+--     still in the future), for the public registration page. Never exposes
+--     registration rows/PII, only an aggregated count.
 --   - cdl_dispatcher_classes_admin: ALL classes (open + closed), for the
 --     staff class-management page.
 --
@@ -53,7 +53,8 @@ left join (
   where payment_status = 'paid' and status <> 'CANCELED'
   group by class_id
 ) r on r.class_id = c.id
-where c.open = true;
+where c.open = true
+  and c.ends_at >= now();
 
 grant select on public.cdl_dispatcher_classes_public to anon, authenticated;
 

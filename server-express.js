@@ -1274,6 +1274,19 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
   }
 }
 
+// Dispatcher registrations come from an unauthenticated public form, so every
+// registrant-supplied value interpolated into notification email HTML below
+// must be entity-escaped first. Coerces null/undefined/numbers safely.
+function escapeHtml(value) {
+  if (value === null || value === undefined) return ''
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 async function sendDispatcherConfirmation(payment) {
   if (!resend || !payment?.customer_email) return
   try {
@@ -1305,7 +1318,7 @@ async function sendDispatcherConfirmation(payment) {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #08085f;">Dispatcher Class Registration Confirmed</h2>
-          <p>Dear ${registration?.first_name || 'Student'},</p>
+          <p>Dear ${escapeHtml(registration?.first_name || 'Student')},</p>
           <p>Thank you for registering for <strong>${className}</strong> at Iman Trucking School. Your registration is confirmed.</p>
           <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
@@ -1319,7 +1332,7 @@ async function sendDispatcherConfirmation(payment) {
           </div>
           <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
             <strong>Registration Policy:</strong> ${DISPATCHER_PAYMENT_POLICY_TEXT}
-            ${signedAt ? `<br><br><strong>Electronically signed by:</strong> ${registration.payment_policy_signature || ''} on ${signedAt} (policy version ${registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION})` : ''}
+            ${signedAt ? `<br><br><strong>Electronically signed by:</strong> ${escapeHtml(registration.payment_policy_signature || '')} on ${signedAt} (policy version ${escapeHtml(registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION)})` : ''}
           </div>
           <p>Please keep this email for your records. Admissions will contact you with class logistics before the session begins.</p>
           <p>Best regards,<br>Iman Trucking School</p>
@@ -1366,10 +1379,10 @@ async function sendDispatcherDepartmentNotification(payment) {
           <h2 style="color: #08085f;">New Paid Dispatcher Registration</h2>
           <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Student:</strong> ${registration.first_name} ${registration.last_name}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Email:</strong> ${registration.email}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Phone:</strong> ${registration.phone || 'Not provided'}</p>
-            <p style="margin: 8px 0 0 0;"><strong>Address:</strong> ${registration.address_line1}${registration.address_line2 ? `, ${registration.address_line2}` : ''}, ${registration.city}, ${registration.state} ${registration.zip_code}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Student:</strong> ${escapeHtml(registration.first_name)} ${escapeHtml(registration.last_name)}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Email:</strong> ${escapeHtml(registration.email)}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Phone:</strong> ${escapeHtml(registration.phone || 'Not provided')}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Address:</strong> ${escapeHtml(registration.address_line1)}${registration.address_line2 ? `, ${escapeHtml(registration.address_line2)}` : ''}, ${escapeHtml(registration.city)}, ${escapeHtml(registration.state)} ${escapeHtml(registration.zip_code)}</p>
           </div>
           <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Class:</strong> ${className}</p>
@@ -1380,9 +1393,9 @@ async function sendDispatcherDepartmentNotification(payment) {
             <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
           </div>
           <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
-            <strong>Policy signature:</strong> ${registration.payment_policy_signature || 'Not recorded'}<br>
+            <strong>Policy signature:</strong> ${escapeHtml(registration.payment_policy_signature || 'Not recorded')}<br>
             <strong>Accepted at:</strong> ${signedAt}<br>
-            <strong>Policy version:</strong> ${registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION}
+            <strong>Policy version:</strong> ${escapeHtml(registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION)}
           </div>
           <p>Review this registration in the <a href="${process.env.APP_URL || process.env.PUBLIC_SITE_URL || ''}/admin/dispatcher-registrations/">admin dashboard</a>.</p>
         </div>

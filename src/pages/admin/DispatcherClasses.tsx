@@ -79,7 +79,12 @@ export function DispatcherClasses() {
   const [rows, setRows] = useState<DispatcherClassRow[]>([])
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
+  // `error` is the table/load error shown above the table; `formError` is the
+  // save error shown inside the create/edit dialog. They are separate so that
+  // opening the dialog no longer hides a load failure that still applies to
+  // the table behind it.
   const [error, setError] = useState('')
+  const [formError, setFormError] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState<ClassFormState>(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -100,6 +105,7 @@ export function DispatcherClasses() {
 
       if (loadError) throw loadError
       setRows((data || []) as DispatcherClassRow[])
+      setError('')
     } catch (err: any) {
       setError(err?.message || 'Unable to load dispatcher classes.')
     }
@@ -108,7 +114,7 @@ export function DispatcherClasses() {
 
   function openCreate() {
     setForm(emptyForm)
-    setError('')
+    setFormError('')
     setDialogOpen(true)
   }
 
@@ -125,19 +131,19 @@ export function DispatcherClasses() {
       seatCapacity: row.seat_capacity != null ? String(row.seat_capacity) : '',
       open: row.open,
     })
-    setError('')
+    setFormError('')
     setDialogOpen(true)
   }
 
   async function save() {
     if (!form.name.trim() || !form.startsAt || !form.endsAt) {
-      setError('Class name, start date, and end date are required.')
+      setFormError('Class name, start date, and end date are required.')
       return
     }
 
     const priceCents = Math.round(Number(form.priceDollars) * 100)
     if (!Number.isFinite(priceCents) || priceCents < 0) {
-      setError('Enter a valid price.')
+      setFormError('Enter a valid price.')
       return
     }
 
@@ -145,14 +151,14 @@ export function DispatcherClasses() {
     if (form.seatCapacity.trim() !== '') {
       const parsed = Number(form.seatCapacity)
       if (!Number.isInteger(parsed) || parsed < 0) {
-        setError('Seat capacity must be a whole number, or left blank for unlimited seats.')
+        setFormError('Seat capacity must be a whole number, or left blank for unlimited seats.')
         return
       }
       seatCapacity = parsed
     }
 
     setSaving(true)
-    setError('')
+    setFormError('')
     try {
       const payload = {
         name: form.name.trim(),
@@ -185,7 +191,7 @@ export function DispatcherClasses() {
       setDialogOpen(false)
       await loadData()
     } catch (err: any) {
-      setError(err?.message || 'Unable to save this class session.')
+      setFormError(err?.message || 'Unable to save this class session.')
     }
     setSaving(false)
   }
@@ -206,6 +212,12 @@ export function DispatcherClasses() {
         </Stack>
 
         {notice && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setNotice('')}>{notice}</Alert>}
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" size="small" onClick={loadData}>Retry</Button>}>
+            Could not load dispatcher class sessions — the list below may be incomplete. {error}
+          </Alert>
+        )}
 
         <Paper sx={{ borderRadius: 3 }}>
           <TableContainer>
@@ -273,7 +285,7 @@ export function DispatcherClasses() {
           <DialogTitle>{form.id ? 'Edit class session' : 'New class session'}</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
-              {error && <Alert severity="error">{error}</Alert>}
+              {formError && <Alert severity="error">{formError}</Alert>}
               <TextField
                 label="Class name"
                 value={form.name}

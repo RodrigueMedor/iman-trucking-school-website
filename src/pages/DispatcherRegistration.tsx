@@ -91,6 +91,8 @@ export function DispatcherRegistration() {
     class_id: string
   } | null>(null)
   const [confirmedRegistration, setConfirmedRegistration] = useState<PaymentRegistrationDetails | null>(null)
+  // Server-confirmed charged amount (from the payment record), in cents.
+  const [paidAmountCents, setPaidAmountCents] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -143,12 +145,19 @@ export function DispatcherRegistration() {
     }
   }, [isMock])
 
-  // Automatically select the default open class if none is selected yet
+  // Keep formData.classId in sync with the loaded classes. This must re-point
+  // (not just default) whenever the current id is absent from `classes` —
+  // otherwise the hardcoded fallback id selected before the real classes
+  // resolve would stick, and the user would review one class but pay for
+  // whatever the server resolved that stale id to.
   useEffect(() => {
-    if (classes.length > 0 && !formData.classId) {
-      setFormData(prev => ({ ...prev, classId: prev.classId || classes[0].id }))
+    if (classes.length > 0 && !classes.some(c => c.id === formData.classId)) {
+      const firstSelectable =
+        classes.find(c => !(c.seat_capacity != null && (c.seats_remaining ?? 0) <= 0)) ?? classes[0]
+      setFormData(prev => ({ ...prev, classId: firstSelectable.id }))
     }
-  }, [classes, formData.classId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classes])
 
   const effectiveClassId = formData.classId || (classes.length > 0 ? classes[0].id : '')
   const selectedClass = classes.find(c => c.id === (effectiveClassId || registration?.class_id)) || classes[0]
@@ -278,6 +287,9 @@ export function DispatcherRegistration() {
           if (result?.registration) {
             setConfirmedRegistration(result.registration)
           }
+          if (result?.amount_cents != null) {
+            setPaidAmountCents(result.amount_cents)
+          }
           sessionStorage.removeItem(pendingRegistrationStorageKey)
           setState('success')
         }}
@@ -300,7 +312,9 @@ export function DispatcherRegistration() {
         ? `${formData.address1}${formData.address2 ? `, ${formData.address2}` : ''}, ${formData.city}, ${formData.state} ${formData.zip}`
         : '—')
     const className = confirmedRegistration?.className || selectedClass?.name || 'Dispatcher Training'
-    const total = price || 520
+    // Prefer the amount Stripe actually charged (from the payment record) over
+    // the client-side class price, which can drift from what was billed.
+    const total = paidAmountCents != null ? paidAmountCents / 100 : price || 520
     const classLocation = confirmedRegistration?.classLocation || selectedClass?.location || null
     const classScheduleNotes = confirmedRegistration?.classScheduleNotes || selectedClass?.schedule_notes || null
     const classStartsAt = confirmedRegistration?.classStartsAt || selectedClass?.starts_at || null
@@ -669,7 +683,7 @@ export function DispatcherRegistration() {
                 </Grid>
                 <Grid size={12}>
                   <Typography fontWeight={900} sx={{ mb: 1.5 }}>Select a class session</Typography>
-                  <Stack spacing={2}>
+                  <Stack spacing={2} role="radiogroup" aria-label="Select a class session">
                     {classes.map(c => {
                       const classPrice = c.price_cents != null ? c.price_cents / 100 : 520
                       const isFull = c.seat_capacity != null && (c.seats_remaining ?? 0) <= 0
@@ -680,11 +694,25 @@ export function DispatcherRegistration() {
                       const endLabel = c.ends_at
                         ? new Date(c.ends_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
                         : null
+                      const selectClass = () => {
+                        if (!isFull) setFormData({ ...formData, classId: c.id })
+                      }
                       return (
                         <Paper
                           key={c.id}
                           variant="outlined"
-                          onClick={() => !isFull && setFormData({ ...formData, classId: c.id })}
+                          role="radio"
+                          aria-checked={isSelected}
+                          aria-disabled={isFull}
+                          tabIndex={isFull ? -1 : 0}
+                          onClick={selectClass}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                              // Space would otherwise scroll the page.
+                              event.preventDefault()
+                              selectClass()
+                            }
+                          }}
                           sx={{
                             p: 2.5,
                             borderRadius: 3,
