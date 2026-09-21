@@ -7,16 +7,13 @@ import {
   Container,
   Grid,
   TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Typography,
   Alert,
   Paper,
   Stack,
   CircularProgress,
   Divider,
+  Chip,
 } from '@mui/material'
 import LocalShippingIcon from '@mui/icons-material/LocalShipping'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -38,7 +35,18 @@ import {
 } from '../components/DispatcherPolicyAgreement'
 import { isPaymentPolicySigned } from '../lib/paymentPolicy'
 
-type DispatcherClass = { id: string; name: string; description?: string; price_cents?: number }
+type DispatcherClass = {
+  id: string
+  name: string
+  description?: string
+  price_cents?: number
+  starts_at?: string
+  ends_at?: string
+  location?: string
+  schedule_notes?: string
+  seat_capacity?: number | null
+  seats_remaining?: number | null
+}
 
 const fallbackClasses: DispatcherClass[] = [
   {
@@ -46,6 +54,12 @@ const fallbackClasses: DispatcherClass[] = [
     name: 'Dispatcher Training — Rolling Enrollment 2026',
     description: 'Entry-level freight and fleet dispatcher certification training.',
     price_cents: 52000,
+    starts_at: '2026-01-01T00:00:00Z',
+    ends_at: '2026-12-31T23:59:59Z',
+    location: 'Iman Trucking School — Orlando, FL Campus',
+    schedule_notes: 'Rolling enrollment — contact admissions for the next start date.',
+    seat_capacity: null,
+    seats_remaining: null,
   },
 ]
 
@@ -77,6 +91,8 @@ export function DispatcherRegistration() {
     class_id: string
   } | null>(null)
   const [confirmedRegistration, setConfirmedRegistration] = useState<PaymentRegistrationDetails | null>(null)
+  // Server-confirmed charged amount (from the payment record), in cents.
+  const [paidAmountCents, setPaidAmountCents] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -118,24 +134,30 @@ export function DispatcherRegistration() {
   useEffect(() => {
     if (!isMock) {
       supabase!
-        .from('cdl_dispatcher_classes')
-        .select('id, name, description, price_cents')
-        .eq('open', true)
-        .order('name')
+        .from('cdl_dispatcher_classes_public')
+        .select('id, name, description, price_cents, starts_at, ends_at, location, schedule_notes, seat_capacity, seats_remaining')
+        .order('starts_at')
         .then(({ data, error }) => {
           if (!error && data?.length) {
-            setClasses(data.map(item => ({ ...item, price_cents: 52000 })) as DispatcherClass[])
+            setClasses(data as DispatcherClass[])
           }
         })
     }
   }, [isMock])
 
-  // Automatically select the default open class if none is selected yet
+  // Keep formData.classId in sync with the loaded classes. This must re-point
+  // (not just default) whenever the current id is absent from `classes` —
+  // otherwise the hardcoded fallback id selected before the real classes
+  // resolve would stick, and the user would review one class but pay for
+  // whatever the server resolved that stale id to.
   useEffect(() => {
-    if (classes.length > 0 && !formData.classId) {
-      setFormData(prev => ({ ...prev, classId: prev.classId || classes[0].id }))
+    if (classes.length > 0 && !classes.some(c => c.id === formData.classId)) {
+      const firstSelectable =
+        classes.find(c => !(c.seat_capacity != null && (c.seats_remaining ?? 0) <= 0)) ?? classes[0]
+      setFormData(prev => ({ ...prev, classId: firstSelectable.id }))
     }
-  }, [classes, formData.classId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classes])
 
   const effectiveClassId = formData.classId || (classes.length > 0 ? classes[0].id : '')
   const selectedClass = classes.find(c => c.id === (effectiveClassId || registration?.class_id)) || classes[0]
@@ -265,6 +287,9 @@ export function DispatcherRegistration() {
           if (result?.registration) {
             setConfirmedRegistration(result.registration)
           }
+          if (result?.amount_cents != null) {
+            setPaidAmountCents(result.amount_cents)
+          }
           sessionStorage.removeItem(pendingRegistrationStorageKey)
           setState('success')
         }}
@@ -287,7 +312,16 @@ export function DispatcherRegistration() {
         ? `${formData.address1}${formData.address2 ? `, ${formData.address2}` : ''}, ${formData.city}, ${formData.state} ${formData.zip}`
         : '—')
     const className = confirmedRegistration?.className || selectedClass?.name || 'Dispatcher Training'
-    const total = price || 520
+    // Prefer the amount Stripe actually charged (from the payment record) over
+    // the client-side class price, which can drift from what was billed.
+    const total = paidAmountCents != null ? paidAmountCents / 100 : price || 520
+    const classLocation = confirmedRegistration?.classLocation || selectedClass?.location || null
+    const classScheduleNotes = confirmedRegistration?.classScheduleNotes || selectedClass?.schedule_notes || null
+    const classStartsAt = confirmedRegistration?.classStartsAt || selectedClass?.starts_at || null
+    const classEndsAt = confirmedRegistration?.classEndsAt || selectedClass?.ends_at || null
+    const classDatesLabel = classStartsAt
+      ? `${new Date(classStartsAt).toLocaleDateString('en-US', { dateStyle: 'medium' })}${classEndsAt ? ` – ${new Date(classEndsAt).toLocaleDateString('en-US', { dateStyle: 'medium' })}` : ''}`
+      : null
 
     return (
       <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#f5f7fb', py: 6 }}>
@@ -337,6 +371,24 @@ export function DispatcherRegistration() {
                     <Typography variant="caption" color="text.secondary">Class Enrolled</Typography>
                     <Typography variant="body2" fontWeight={700}>{className}</Typography>
                   </Grid>
+                  {classDatesLabel && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Class Dates</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classDatesLabel}</Typography>
+                    </Grid>
+                  )}
+                  {classLocation && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Location</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classLocation}</Typography>
+                    </Grid>
+                  )}
+                  {classScheduleNotes && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Schedule</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classScheduleNotes}</Typography>
+                    </Grid>
+                  )}
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Typography variant="caption" color="text.secondary">Amount Paid</Typography>
                     <Typography variant="body2" fontWeight={800} color="success.main">
@@ -363,6 +415,14 @@ export function DispatcherRegistration() {
                 <Typography variant="body2">
                   {DISPATCHER_POLICY_TEXT}
                 </Typography>
+                {(confirmedRegistration?.policySignature || paymentPolicySignature) && (
+                  <Typography variant="caption" display="block" sx={{ mt: 1.5, fontStyle: 'italic' }}>
+                    Electronically signed by {confirmedRegistration?.policySignature || paymentPolicySignature}
+                    {confirmedRegistration?.policyAcceptedAt
+                      ? ` on ${new Date(confirmedRegistration.policyAcceptedAt).toLocaleString('en-US')}`
+                      : ''}
+                  </Typography>
+                )}
               </Alert>
 
               <Alert severity="success" sx={{ mb: 4, textAlign: 'left' }}>
@@ -431,6 +491,18 @@ export function DispatcherRegistration() {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       {selectedClass.description}
                     </Typography>
+                  )}
+                  {selectedClass?.starts_at && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      <strong>Dates:</strong> {new Date(selectedClass.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+                      {selectedClass.ends_at ? ` – ${new Date(selectedClass.ends_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}` : ''}
+                    </Typography>
+                  )}
+                  {selectedClass?.location && (
+                    <Typography variant="body2"><strong>Location:</strong> {selectedClass.location}</Typography>
+                  )}
+                  {selectedClass?.schedule_notes && (
+                    <Typography variant="body2"><strong>Schedule:</strong> {selectedClass.schedule_notes}</Typography>
                   )}
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 3, pt: 2, borderTop: '1px dashed', borderColor: 'divider' }}>
                     <Typography fontWeight={900}>Tuition / Total due</Typography>
@@ -610,20 +682,76 @@ export function DispatcherRegistration() {
                   />
                 </Grid>
                 <Grid size={12}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Dispatcher class</InputLabel>
-                    <Select
-                      value={formData.classId}
-                      onChange={e => setFormData({ ...formData, classId: e.target.value })}
-                      label="Dispatcher class"
-                    >
-                      {classes.map(c => (
-                        <MenuItem key={c.id} value={c.id}>
-                          {c.name} — ${(c.price_cents != null ? c.price_cents / 100 : 520).toFixed(2)}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Typography fontWeight={900} sx={{ mb: 1.5 }}>Select a class session</Typography>
+                  <Stack spacing={2} role="radiogroup" aria-label="Select a class session">
+                    {classes.map(c => {
+                      const classPrice = c.price_cents != null ? c.price_cents / 100 : 520
+                      const isFull = c.seat_capacity != null && (c.seats_remaining ?? 0) <= 0
+                      const isSelected = formData.classId === c.id
+                      const startLabel = c.starts_at
+                        ? new Date(c.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+                        : 'Rolling enrollment'
+                      const endLabel = c.ends_at
+                        ? new Date(c.ends_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+                        : null
+                      const selectClass = () => {
+                        if (!isFull) setFormData({ ...formData, classId: c.id })
+                      }
+                      return (
+                        <Paper
+                          key={c.id}
+                          variant="outlined"
+                          role="radio"
+                          aria-checked={isSelected}
+                          aria-disabled={isFull}
+                          tabIndex={isFull ? -1 : 0}
+                          onClick={selectClass}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                              // Space would otherwise scroll the page.
+                              event.preventDefault()
+                              selectClass()
+                            }
+                          }}
+                          sx={{
+                            p: 2.5,
+                            borderRadius: 3,
+                            cursor: isFull ? 'not-allowed' : 'pointer',
+                            opacity: isFull ? 0.55 : 1,
+                            borderColor: isSelected ? 'secondary.main' : 'divider',
+                            borderWidth: isSelected ? 2 : 1,
+                            bgcolor: isSelected ? '#fff5f5' : 'transparent',
+                          }}
+                        >
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5}>
+                            <Box>
+                              <Typography fontWeight={900}>{c.name}</Typography>
+                              {c.description && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                  {c.description}
+                                </Typography>
+                              )}
+                              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1 }}>
+                                <Chip size="small" label={endLabel ? `${startLabel} – ${endLabel}` : startLabel} />
+                                {c.location && <Chip size="small" label={c.location} />}
+                                {c.schedule_notes && <Chip size="small" label={c.schedule_notes} />}
+                                {c.seat_capacity != null && (
+                                  <Chip
+                                    size="small"
+                                    color={isFull ? 'error' : 'success'}
+                                    label={isFull ? 'Class full' : `${c.seats_remaining} seat${c.seats_remaining === 1 ? '' : 's'} left`}
+                                  />
+                                )}
+                              </Stack>
+                            </Box>
+                            <Typography variant="h6" fontWeight={950} color="secondary.main" whiteSpace="nowrap">
+                              ${classPrice.toFixed(2)}
+                            </Typography>
+                          </Stack>
+                        </Paper>
+                      )
+                    })}
+                  </Stack>
                 </Grid>
                 <Grid size={12}>
                   <Button

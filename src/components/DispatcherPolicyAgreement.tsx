@@ -3,7 +3,7 @@ import PolicyIcon from '@mui/icons-material/Policy'
 import { expectedSignatureName, normalizePersonName } from '../lib/paymentPolicy'
 
 export const DISPATCHER_POLICY_TEXT =
-  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class.'
+  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class. If Iman Trucking School cancels or reschedules this class session, the student may choose a full refund or a credit toward a future dispatcher class.'
 
 type DispatcherPolicyAgreementProps = {
   firstName: string
@@ -78,7 +78,7 @@ export function DispatcherPolicyAgreement({
           }
           label={
             <Typography variant="body2" fontWeight={700}>
-              I have read and agree to the Dispatcher Class Registration Policy: All registration payments are non-refundable. If I cannot attend the class, my payment remains as a credit on my student account and can be used for a future dispatcher class.
+              I have read and agree to the Dispatcher Class Registration Policy: All registration payments are non-refundable. If I cannot attend the class, my payment remains as a credit on my student account and can be used for a future dispatcher class. If the school cancels or reschedules this session, I may choose a full refund or a credit toward a future class.
             </Typography>
           }
         />

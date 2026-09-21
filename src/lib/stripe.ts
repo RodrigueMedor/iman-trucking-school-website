@@ -313,10 +313,16 @@ export type PaymentRegistrationDetails = {
   state?: string
   zip?: string
   className: string
+  classStartsAt?: string | null
+  classEndsAt?: string | null
+  classLocation?: string | null
+  classScheduleNotes?: string | null
   status: string
   paymentStatus: string
   policyAccepted: boolean
   policySignature?: string
+  policyAcceptedAt?: string | null
+  policyVersion?: string | null
   policyText?: string
 }
 

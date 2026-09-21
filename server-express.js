@@ -49,14 +49,43 @@ const dispatcherEmailFrom =
   process.env.DISPATCHER_EMAIL_FROM ||
   process.env.RESULT_EMAIL_FROM ||
   'Iman Trucking School <info@imanlogistics.com>'
+const dispatcherNotifyEmail = process.env.DISPATCHER_NOTIFY_EMAIL || 'info@imantruckingschool.com'
+
+// Optional SMS notifications via Twilio's REST API directly (no SDK
+// dependency — uses the native fetch available on Node >= 18). Safe
+// no-op until all three env vars are set; nothing else needs to change
+// to activate it later.
+const twilioConfigured =
+  !!process.env.TWILIO_ACCOUNT_SID &&
+  !!process.env.TWILIO_AUTH_TOKEN &&
+  !!process.env.TWILIO_FROM_NUMBER
+
+async function sendSms(to, body) {
+  if (!twilioConfigured || !to) return { skipped: true }
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
+  const params = new URLSearchParams({ To: to, From: process.env.TWILIO_FROM_NUMBER, Body: body })
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params,
+  })
+  if (!response.ok) {
+    throw new Error(`Twilio SMS failed with status ${response.status}`)
+  }
+  return { skipped: false }
+}
 
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PAYMENT_POLICY_VERSION = 'v2-case-by-case-refunds'
-const DISPATCHER_PAYMENT_POLICY_VERSION = 'v1-dispatcher-nonrefundable-credit'
+const DISPATCHER_PAYMENT_POLICY_VERSION = 'v2-dispatcher-nonrefundable-credit-schoolcancel'
 const DISPATCHER_PAYMENT_POLICY_TEXT =
-  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class.'
+  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class. If Iman Trucking School cancels or reschedules this class session, the student may choose a full refund or a credit toward a future dispatcher class.'
 
 function normalizePersonName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -293,7 +322,8 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
           payment_status,
           payment_policy_accepted_at,
           payment_policy_signature,
-          class:cdl_dispatcher_classes(name, starts_at, ends_at)
+          payment_policy_version,
+          class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)
         `)
         .eq('id', payment.dispatcher_registration_id)
         .maybeSingle()
@@ -311,10 +341,16 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
           state: reg.state,
           zip: reg.zip_code,
           className: reg.class?.name || payment.metadata?.className || 'Dispatcher Training',
+          classStartsAt: reg.class?.starts_at || null,
+          classEndsAt: reg.class?.ends_at || null,
+          classLocation: reg.class?.location || null,
+          classScheduleNotes: reg.class?.schedule_notes || null,
           status: reg.status,
           paymentStatus: reg.payment_status,
           policyAccepted: !!reg.payment_policy_accepted_at,
           policySignature: reg.payment_policy_signature,
+          policyAcceptedAt: reg.payment_policy_accepted_at,
+          policyVersion: reg.payment_policy_version,
           policyText: DISPATCHER_PAYMENT_POLICY_TEXT,
         }
       }
@@ -793,6 +829,32 @@ app.post('/api/create-dispatcher-checkout', async (req, res) => {
       return res.status(409).json({ error: 'Class does not match the registration' })
     }
 
+    // Enforce seat capacity at the moment of payment, not just at browse
+    // time. seat_capacity is nullable (null = unlimited), so only enforce
+    // when a real capacity is set. This also catches the edge case where
+    // a class was closed/filled after the registrant started but before
+    // they paid.
+    if (registrationRow.class_id) {
+      const { data: capacityClass } = await supabase
+        .from('cdl_dispatcher_classes')
+        .select('seat_capacity')
+        .eq('id', registrationRow.class_id)
+        .maybeSingle()
+
+      if (capacityClass?.seat_capacity != null) {
+        const { count: seatsTaken } = await supabase
+          .from('cdl_dispatcher_registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('class_id', registrationRow.class_id)
+          .eq('payment_status', 'paid')
+          .neq('status', 'CANCELED')
+
+        if ((seatsTaken || 0) >= capacityClass.seat_capacity) {
+          return res.status(409).json({ error: 'This class is full.' })
+        }
+      }
+    }
+
     const policyError = dispatcherPolicyError(
       req.body,
       registrationRow.first_name || firstName,
@@ -1202,10 +1264,27 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
 
   await markRelatedRecord(payment, { registration: 'paid', application: 'paid', dispatcher: 'paid' })
 
-  // Send a confirmation email for successful dispatcher registrations
+  // Send confirmation + department notification emails for successful
+  // dispatcher registrations. Each call is independently guarded so a
+  // failure in one never blocks the other or payment finalization.
   if (payment.payment_type === 'dispatcher') {
     await sendDispatcherConfirmation(payment)
+    await sendDispatcherDepartmentNotification(payment)
+    await sendDispatcherSmsConfirmation(payment)
   }
+}
+
+// Dispatcher registrations come from an unauthenticated public form, so every
+// registrant-supplied value interpolated into notification email HTML below
+// must be entity-escaped first. Coerces null/undefined/numbers safely.
+function escapeHtml(value) {
+  if (value === null || value === undefined) return ''
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 async function sendDispatcherConfirmation(payment) {
@@ -1213,7 +1292,7 @@ async function sendDispatcherConfirmation(payment) {
   try {
     const { data: registration } = await supabase
       .from('cdl_dispatcher_registrations')
-      .select('*, class:cdl_dispatcher_classes(name, starts_at)')
+      .select('*, class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)')
       .eq('id', payment.dispatcher_registration_id)
       .maybeSingle()
 
@@ -1223,6 +1302,14 @@ async function sendDispatcherConfirmation(payment) {
     const startDate = registration?.class?.starts_at
       ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'long' })
       : 'Rolling enrollment'
+    const endDate = registration?.class?.ends_at
+      ? new Date(registration.class.ends_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : null
+    const location = registration?.class?.location || 'To be announced'
+    const scheduleNotes = registration?.class?.schedule_notes
+    const signedAt = registration?.payment_policy_accepted_at
+      ? new Date(registration.payment_policy_accepted_at).toLocaleString('en-US')
+      : null
 
     await resend.emails.send({
       from: dispatcherEmailFrom,
@@ -1231,17 +1318,21 @@ async function sendDispatcherConfirmation(payment) {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #08085f;">Dispatcher Class Registration Confirmed</h2>
-          <p>Dear ${registration?.first_name || 'Student'},</p>
+          <p>Dear ${escapeHtml(registration?.first_name || 'Student')},</p>
           <p>Thank you for registering for <strong>${className}</strong> at Iman Trucking School. Your registration is confirmed.</p>
           <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
             <p style="margin: 8px 0 0 0;"><strong>Class:</strong> ${className}</p>
             <p style="margin: 8px 0 0 0;"><strong>Starts:</strong> ${startDate}</p>
+            ${endDate ? `<p style="margin: 8px 0 0 0;"><strong>Ends:</strong> ${endDate}</p>` : ''}
+            <p style="margin: 8px 0 0 0;"><strong>Location:</strong> ${location}</p>
+            ${scheduleNotes ? `<p style="margin: 8px 0 0 0;"><strong>Schedule:</strong> ${scheduleNotes}</p>` : ''}
             <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
             <p style="margin: 8px 0 0 0;"><strong>Payment Status:</strong> Paid</p>
           </div>
           <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
             <strong>Registration Policy:</strong> ${DISPATCHER_PAYMENT_POLICY_TEXT}
+            ${signedAt ? `<br><br><strong>Electronically signed by:</strong> ${escapeHtml(registration.payment_policy_signature || '')} on ${signedAt} (policy version ${escapeHtml(registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION)})` : ''}
           </div>
           <p>Please keep this email for your records. Admissions will contact you with class logistics before the session begins.</p>
           <p>Best regards,<br>Iman Trucking School</p>
@@ -1250,6 +1341,94 @@ async function sendDispatcherConfirmation(payment) {
     })
   } catch (error) {
     console.error('Failed to send dispatcher confirmation email:', error)
+  }
+}
+
+async function sendDispatcherDepartmentNotification(payment) {
+  if (!resend) return
+  try {
+    const { data: registration } = await supabase
+      .from('cdl_dispatcher_registrations')
+      .select('*, class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)')
+      .eq('id', payment.dispatcher_registration_id)
+      .maybeSingle()
+
+    if (!registration) return
+
+    const registrationNo = registration.registration_no || payment.metadata?.registration_no || ''
+    const className = registration.class?.name || payment.metadata?.className || 'Dispatcher Training'
+    const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
+    const startDate = registration.class?.starts_at
+      ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : 'Rolling enrollment'
+    const endDate = registration.class?.ends_at
+      ? new Date(registration.class.ends_at).toLocaleDateString('en-US', { dateStyle: 'long' })
+      : null
+    const location = registration.class?.location || 'Not specified'
+    const scheduleNotes = registration.class?.schedule_notes || 'Not specified'
+    const signedAt = registration.payment_policy_accepted_at
+      ? new Date(registration.payment_policy_accepted_at).toLocaleString('en-US')
+      : 'Not recorded'
+
+    await resend.emails.send({
+      from: dispatcherEmailFrom,
+      to: dispatcherNotifyEmail,
+      subject: `New Dispatcher Registration Paid - ${registrationNo}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #08085f;">New Paid Dispatcher Registration</h2>
+          <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Registration Number:</strong> ${registrationNo}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Student:</strong> ${escapeHtml(registration.first_name)} ${escapeHtml(registration.last_name)}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Email:</strong> ${escapeHtml(registration.email)}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Phone:</strong> ${escapeHtml(registration.phone || 'Not provided')}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Address:</strong> ${escapeHtml(registration.address_line1)}${registration.address_line2 ? `, ${escapeHtml(registration.address_line2)}` : ''}, ${escapeHtml(registration.city)}, ${escapeHtml(registration.state)} ${escapeHtml(registration.zip_code)}</p>
+          </div>
+          <div style="background: #f5f7fb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Class:</strong> ${className}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Starts:</strong> ${startDate}</p>
+            ${endDate ? `<p style="margin: 8px 0 0 0;"><strong>Ends:</strong> ${endDate}</p>` : ''}
+            <p style="margin: 8px 0 0 0;"><strong>Location:</strong> ${location}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Schedule:</strong> ${scheduleNotes}</p>
+            <p style="margin: 8px 0 0 0;"><strong>Amount Paid:</strong> ${amount}</p>
+          </div>
+          <div style="background: #fff9e6; border-left: 4px solid #ffb300; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #5d4037;">
+            <strong>Policy signature:</strong> ${escapeHtml(registration.payment_policy_signature || 'Not recorded')}<br>
+            <strong>Accepted at:</strong> ${signedAt}<br>
+            <strong>Policy version:</strong> ${escapeHtml(registration.payment_policy_version || DISPATCHER_PAYMENT_POLICY_VERSION)}
+          </div>
+          <p>Review this registration in the <a href="${process.env.APP_URL || process.env.PUBLIC_SITE_URL || ''}/admin/dispatcher-registrations/">admin dashboard</a>.</p>
+        </div>
+      `,
+    })
+  } catch (error) {
+    console.error('Failed to send dispatcher department notification email:', error)
+  }
+}
+
+async function sendDispatcherSmsConfirmation(payment) {
+  if (!twilioConfigured) return
+  try {
+    const { data: registration } = await supabase
+      .from('cdl_dispatcher_registrations')
+      .select('phone, registration_no, class:cdl_dispatcher_classes(name, starts_at)')
+      .eq('id', payment.dispatcher_registration_id)
+      .maybeSingle()
+
+    if (!registration?.phone) return
+
+    const registrationNo = registration.registration_no || payment.metadata?.registration_no || ''
+    const className = registration.class?.name || payment.metadata?.className || 'Dispatcher Training'
+    const startDate = registration.class?.starts_at
+      ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+      : 'rolling enrollment'
+
+    await sendSms(
+      registration.phone,
+      `Iman Trucking School: Your registration ${registrationNo} for ${className} is confirmed. Class starts ${startDate}. Check your email for the full receipt.`
+    )
+  } catch (error) {
+    console.error('Failed to send dispatcher SMS confirmation:', error)
   }
 }
 
