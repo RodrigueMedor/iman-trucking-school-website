@@ -301,6 +301,13 @@ export function DispatcherRegistration() {
         : '—')
     const className = confirmedRegistration?.className || selectedClass?.name || 'Dispatcher Training'
     const total = price || 520
+    const classLocation = confirmedRegistration?.classLocation || selectedClass?.location || null
+    const classScheduleNotes = confirmedRegistration?.classScheduleNotes || selectedClass?.schedule_notes || null
+    const classStartsAt = confirmedRegistration?.classStartsAt || selectedClass?.starts_at || null
+    const classEndsAt = confirmedRegistration?.classEndsAt || selectedClass?.ends_at || null
+    const classDatesLabel = classStartsAt
+      ? `${new Date(classStartsAt).toLocaleDateString('en-US', { dateStyle: 'medium' })}${classEndsAt ? ` – ${new Date(classEndsAt).toLocaleDateString('en-US', { dateStyle: 'medium' })}` : ''}`
+      : null
 
     return (
       <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: '#f5f7fb', py: 6 }}>
@@ -350,6 +357,24 @@ export function DispatcherRegistration() {
                     <Typography variant="caption" color="text.secondary">Class Enrolled</Typography>
                     <Typography variant="body2" fontWeight={700}>{className}</Typography>
                   </Grid>
+                  {classDatesLabel && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Class Dates</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classDatesLabel}</Typography>
+                    </Grid>
+                  )}
+                  {classLocation && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Location</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classLocation}</Typography>
+                    </Grid>
+                  )}
+                  {classScheduleNotes && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Schedule</Typography>
+                      <Typography variant="body2" fontWeight={700}>{classScheduleNotes}</Typography>
+                    </Grid>
+                  )}
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Typography variant="caption" color="text.secondary">Amount Paid</Typography>
                     <Typography variant="body2" fontWeight={800} color="success.main">
@@ -376,6 +401,14 @@ export function DispatcherRegistration() {
                 <Typography variant="body2">
                   {DISPATCHER_POLICY_TEXT}
                 </Typography>
+                {(confirmedRegistration?.policySignature || paymentPolicySignature) && (
+                  <Typography variant="caption" display="block" sx={{ mt: 1.5, fontStyle: 'italic' }}>
+                    Electronically signed by {confirmedRegistration?.policySignature || paymentPolicySignature}
+                    {confirmedRegistration?.policyAcceptedAt
+                      ? ` on ${new Date(confirmedRegistration.policyAcceptedAt).toLocaleString('en-US')}`
+                      : ''}
+                  </Typography>
+                )}
               </Alert>
 
               <Alert severity="success" sx={{ mb: 4, textAlign: 'left' }}>
@@ -444,6 +477,18 @@ export function DispatcherRegistration() {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       {selectedClass.description}
                     </Typography>
+                  )}
+                  {selectedClass?.starts_at && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      <strong>Dates:</strong> {new Date(selectedClass.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+                      {selectedClass.ends_at ? ` – ${new Date(selectedClass.ends_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}` : ''}
+                    </Typography>
+                  )}
+                  {selectedClass?.location && (
+                    <Typography variant="body2"><strong>Location:</strong> {selectedClass.location}</Typography>
+                  )}
+                  {selectedClass?.schedule_notes && (
+                    <Typography variant="body2"><strong>Schedule:</strong> {selectedClass.schedule_notes}</Typography>
                   )}
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 3, pt: 2, borderTop: '1px dashed', borderColor: 'divider' }}>
                     <Typography fontWeight={900}>Tuition / Total due</Typography>

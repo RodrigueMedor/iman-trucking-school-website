@@ -322,7 +322,8 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
           payment_status,
           payment_policy_accepted_at,
           payment_policy_signature,
-          class:cdl_dispatcher_classes(name, starts_at, ends_at)
+          payment_policy_version,
+          class:cdl_dispatcher_classes(name, starts_at, ends_at, location, schedule_notes)
         `)
         .eq('id', payment.dispatcher_registration_id)
         .maybeSingle()
@@ -340,10 +341,16 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
           state: reg.state,
           zip: reg.zip_code,
           className: reg.class?.name || payment.metadata?.className || 'Dispatcher Training',
+          classStartsAt: reg.class?.starts_at || null,
+          classEndsAt: reg.class?.ends_at || null,
+          classLocation: reg.class?.location || null,
+          classScheduleNotes: reg.class?.schedule_notes || null,
           status: reg.status,
           paymentStatus: reg.payment_status,
           policyAccepted: !!reg.payment_policy_accepted_at,
           policySignature: reg.payment_policy_signature,
+          policyAcceptedAt: reg.payment_policy_accepted_at,
+          policyVersion: reg.payment_policy_version,
           policyText: DISPATCHER_PAYMENT_POLICY_TEXT,
         }
       }
