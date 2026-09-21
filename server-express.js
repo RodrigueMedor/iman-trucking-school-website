@@ -51,6 +51,34 @@ const dispatcherEmailFrom =
   'Iman Trucking School <info@imanlogistics.com>'
 const dispatcherNotifyEmail = process.env.DISPATCHER_NOTIFY_EMAIL || 'info@imantruckingschool.com'
 
+// Optional SMS notifications via Twilio's REST API directly (no SDK
+// dependency — uses the native fetch available on Node >= 18). Safe
+// no-op until all three env vars are set; nothing else needs to change
+// to activate it later.
+const twilioConfigured =
+  !!process.env.TWILIO_ACCOUNT_SID &&
+  !!process.env.TWILIO_AUTH_TOKEN &&
+  !!process.env.TWILIO_FROM_NUMBER
+
+async function sendSms(to, body) {
+  if (!twilioConfigured || !to) return { skipped: true }
+  const sid = process.env.TWILIO_ACCOUNT_SID
+  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
+  const params = new URLSearchParams({ To: to, From: process.env.TWILIO_FROM_NUMBER, Body: body })
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params,
+  })
+  if (!response.ok) {
+    throw new Error(`Twilio SMS failed with status ${response.status}`)
+  }
+  return { skipped: false }
+}
+
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -1235,6 +1263,7 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
   if (payment.payment_type === 'dispatcher') {
     await sendDispatcherConfirmation(payment)
     await sendDispatcherDepartmentNotification(payment)
+    await sendDispatcherSmsConfirmation(payment)
   }
 }
 
@@ -1354,6 +1383,32 @@ async function sendDispatcherDepartmentNotification(payment) {
     })
   } catch (error) {
     console.error('Failed to send dispatcher department notification email:', error)
+  }
+}
+
+async function sendDispatcherSmsConfirmation(payment) {
+  if (!twilioConfigured) return
+  try {
+    const { data: registration } = await supabase
+      .from('cdl_dispatcher_registrations')
+      .select('phone, registration_no, class:cdl_dispatcher_classes(name, starts_at)')
+      .eq('id', payment.dispatcher_registration_id)
+      .maybeSingle()
+
+    if (!registration?.phone) return
+
+    const registrationNo = registration.registration_no || payment.metadata?.registration_no || ''
+    const className = registration.class?.name || payment.metadata?.className || 'Dispatcher Training'
+    const startDate = registration.class?.starts_at
+      ? new Date(registration.class.starts_at).toLocaleDateString('en-US', { dateStyle: 'medium' })
+      : 'rolling enrollment'
+
+    await sendSms(
+      registration.phone,
+      `Iman Trucking School: Your registration ${registrationNo} for ${className} is confirmed. Class starts ${startDate}. Check your email for the full receipt.`
+    )
+  } catch (error) {
+    console.error('Failed to send dispatcher SMS confirmation:', error)
   }
 }
 
