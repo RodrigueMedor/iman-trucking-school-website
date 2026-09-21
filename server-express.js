@@ -54,9 +54,9 @@ const missingServiceError = 'Payments are not configured on the server. Set STRI
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PAYMENT_POLICY_VERSION = 'v2-case-by-case-refunds'
-const DISPATCHER_PAYMENT_POLICY_VERSION = 'v1-dispatcher-nonrefundable-credit'
+const DISPATCHER_PAYMENT_POLICY_VERSION = 'v2-dispatcher-nonrefundable-credit-schoolcancel'
 const DISPATCHER_PAYMENT_POLICY_TEXT =
-  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class.'
+  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class. If Iman Trucking School cancels or reschedules this class session, the student may choose a full refund or a credit toward a future dispatcher class.'
 
 function normalizePersonName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
