@@ -3,6 +3,7 @@ import { AppBar, Avatar, Box, Button, Divider, Drawer, IconButton, List, ListIte
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
+import EventNoteRoundedIcon from '@mui/icons-material/EventNoteRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
@@ -14,6 +15,7 @@ const links = [
   ['Dashboard', '/admin/', <DashboardRoundedIcon />],
   ['All page content', '/admin/content/', <ArticleRoundedIcon />],
   ['Dispatcher Registrations', '/admin/dispatcher-registrations/', <BadgeRoundedIcon />],
+  ['Dispatcher Class Sessions', '/admin/dispatcher-classes/', <EventNoteRoundedIcon />],
 ] as const
 
 export function AdminLayout() {
