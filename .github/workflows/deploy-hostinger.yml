@@ -26,10 +26,20 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.8.1
-        with:
-          ssh-private-key: ${{ secrets.HOSTINGER_SSH_KEY }}
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          touch ~/.ssh/known_hosts
+          # Add host key to known_hosts to avoid interactive prompt
+          if [ -n "$HOST" ]; then
+            ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts || true
+          fi
+          # OpenSSH automatically uses ~/.ssh/id_rsa for the following steps.
 
       - name: Deploy files with rsync
         env:
@@ -45,7 +55,7 @@ jobs:
           if [ -n "$PORT" ]; then
             SSH_OPTS="$SSH_OPTS -p $PORT"
           fi
-          mkdir -p "$REMOTE_PATH"
+          ssh $SSH_OPTS "$USER@$HOST" "mkdir -p '$REMOTE_PATH'"
           rsync -avz --delete "${RSYNC_EXCLUDES[@]}" -e "ssh $SSH_OPTS" ./ "$USER@$HOST:$REMOTE_PATH"
 
       - name: Run remote install & start commands
@@ -64,7 +74,7 @@ jobs:
 
           echo "Executing remote setup on $USER@$HOST:$REMOTE_PATH"
 
-          ssh $SSH_OPTS $USER@$HOST << 'EOF'
+          ssh $SSH_OPTS "$USER@$HOST" "REMOTE_PATH='$REMOTE_PATH' bash -s" << 'EOF'
             set -e
             cd "$REMOTE_PATH" || exit 1
             # Install production dependencies (omit dev to save space)
