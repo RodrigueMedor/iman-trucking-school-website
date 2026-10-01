@@ -10,7 +10,7 @@ jobs:
     name: Build and Deploy
     runs-on: ubuntu-latest
     env:
-      NODE_VERSION: '18'
+      NODE_VERSION: '22'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
