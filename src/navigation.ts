@@ -2,6 +2,7 @@ export const programLinks = [
   ['Our Program', '/our-program/'],
   ['Class A CDL', '/class-a-cdl/'],
   ['CDL Training', '/cdl-training/'],
+  ['Tuition & Financing', '/tuition-financing/'],
   ['Orlando CDL Program', '/cdl-training-program-orlando-florida/'],
   ['Truck Driving School', '/truck-driving-school/'],
 ] as const
@@ -43,4 +44,5 @@ export const pageTitles: Record<string, string> = {
   '/privacy-policy/': 'Privacy Policy',
   '/terms-of-use-page/': 'Terms of Use',
   '/cdl-assessment/': 'CDL Assessment',
+  '/tuition-financing/': 'Tuition & Financing',
 }

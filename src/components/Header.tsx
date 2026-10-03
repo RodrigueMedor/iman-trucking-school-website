@@ -46,6 +46,7 @@ const programMenuLinks = [
   ['CDL Training School', '/advantages-of-attending-a-cdl-training-school/'],
   ['Class A CDL', '/class-a-cdl/'],
   ['Amazon Career Choice', '/amazon-career-choice/'],
+  ['Tuition & Financing', '/tuition-financing/'],
 ] as const
 
 const directLinks = [

@@ -20,6 +20,10 @@ import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { pageTitles } from '../navigation'
 import { useContent } from '../contexts/ContentContext'
+import { FinancingCallout } from './financing/FinancingCallout'
+
+// Pages that show the "Need Help Paying for CDL Training?" financing section.
+const FINANCING_PAGES = ['/tuition-financing/', '/cdl-training/', '/our-program/', '/class-a-cdl/', '/cdl-training-program-orlando-florida/']
 
 export type PageSection = {
   title: string
@@ -43,6 +47,22 @@ const programOverview = [
 ]
 
 export const pageContent: Record<string, PageContent> = {
+  '/tuition-financing/': {
+    eyebrow: 'Paying for your training',
+    intro: 'Understand the costs of CDL training at Iman Trucking School and the ways students pay for it, including financing through our partner.',
+    sections: [
+      {
+        title: 'Tuition and fees',
+        body: 'Tuition depends on the program and schedule you choose. Contact admissions for current tuition. The registration and application fees can be paid securely online from your student portal.',
+        bullets: ['Program-specific tuition', 'Registration fee payable online', 'Optional application fee after you apply', 'Admissions can walk you through every cost'],
+      },
+      {
+        title: 'Ways to pay',
+        body: 'Students pay out of pocket, through employer programs such as Amazon Career Choice, or with financing from our third-party financing partner when they qualify.',
+        bullets: ['Financing through Liberty Career Finance', 'Amazon Career Choice for eligible associates', 'Payment questions answered by admissions'],
+      },
+    ],
+  },
   '/cdl-assessment/': {
     eyebrow: 'Know where you stand',
     intro: 'A CDL Assessment checks your English proficiency and readiness before training or testing. Read about it freely here; create an account only when you are ready to request one.',
@@ -281,7 +301,7 @@ export const legalContent: Record<string, { intro: string; sections: PageSection
     sections: [
       { title: 'Educational information', body: 'Website content is provided for general informational purposes. Program schedules, pricing, eligibility and regulatory requirements may change.' },
       { title: 'Acceptable use', body: 'Visitors may not misuse the website, attempt unauthorized access or interfere with services provided to other users.' },
-      { title: 'External services', body: 'Financing, maps, forms and other third-party services may be governed by their own terms and privacy practices.' },
+      { title: 'External services', body: 'Financing, maps, forms and other third-party services may be governed by their own terms and privacy practices. Financing applications are submitted directly to our financing partner, Liberty Career Finance, under its own terms and privacy policy; Iman Trucking School does not receive or store them.' },
     ],
   },
 }
@@ -636,6 +656,7 @@ export function InternalPage() {
           </Container>
         </Box>
       )}
+      {FINANCING_PAGES.includes(normalized) && <FinancingCallout showLearnMore={normalized !== '/tuition-financing/'} />}
       {normalized !== '/contact-form/' && normalized !== '/payment/' && <EnrollmentCallout />}
     </>
   )
