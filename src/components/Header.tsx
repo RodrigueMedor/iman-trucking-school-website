@@ -27,8 +27,10 @@ import LanguageRoundedIcon from '@mui/icons-material/LanguageRounded'
 import MailRoundedIcon from '@mui/icons-material/MailRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
+import AccountCircleRoundedIcon from '@mui/icons-material/AccountCircleRounded'
 import XIcon from '@mui/icons-material/X'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const truckDrivingLinks = [
   ['Truck Driving School', '/truck-driving-school/'],
@@ -47,9 +49,8 @@ const programMenuLinks = [
 ] as const
 
 const directLinks = [
-  ['CDL Assessment', '/cdl-readiness/'],
-  ['Apply for Training', '/class-application/'],
-  ['Dispatcher Class', '/dispatcher-registration/'],
+  ['CDL Assessment', '/cdl-assessment/'],
+  ['Apply for Training', '/portal/apply/training'],
   ['Contact Us', '/contact-us/'],
   ['Gallery', '/gallery/'],
 ] as const
@@ -257,6 +258,27 @@ function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
   )
 }
 
+/** Sign in for visitors, My Portal for signed-in students. */
+function PortalButton({ fullWidth = false, onClick }: { fullWidth?: boolean; onClick?: () => void }) {
+  const { session, profile } = useAuth()
+  const staff = profile && profile.role !== 'student'
+  const to = !session ? '/portal/sign-in' : staff ? '/admin/' : '/portal/'
+  return (
+    <Button
+      component={RouterLink}
+      to={to}
+      onClick={onClick}
+      fullWidth={fullWidth}
+      variant="contained"
+      color="secondary"
+      startIcon={<AccountCircleRoundedIcon />}
+      sx={{ whiteSpace: 'nowrap', minHeight: 42 }}
+    >
+      {!session ? 'Sign in' : staff ? 'Admin' : 'My Portal'}
+    </Button>
+  )
+}
+
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { pathname } = useLocation()
@@ -458,9 +480,10 @@ export function Header() {
               })}
             </Stack>
 
-            <Box sx={{ display: { xs: 'none', lg: 'block' }, ml: 'auto' }}>
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ display: { xs: 'none', lg: 'flex' }, ml: 'auto' }}>
               <LanguageSelector />
-            </Box>
+              <PortalButton />
+            </Stack>
 
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ display: { xs: 'flex', lg: 'none' } }}>
               <LanguageSelector compact />
@@ -561,6 +584,7 @@ export function Header() {
             ))}
           </Box>
           <Stack spacing={1.25} p={2.5} mt="auto" bgcolor="#f6f7fb">
+            <PortalButton fullWidth onClick={() => setMobileOpen(false)} />
             <LanguageSelector />
             <Button component="a" href="tel:8889914776" variant="outlined" startIcon={<PhoneRoundedIcon />}>
               (888) 991-4776

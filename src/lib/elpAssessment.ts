@@ -20,11 +20,15 @@ export async function saveSubmission(submission: ElpSubmission) {
   if (import.meta.env.DEV) {
     await fetch(getApiUrl('/api/dev/elp-submissions'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submission) })
   } else if (supabase) {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { error } = await supabase.from('elp_submissions').upsert({ id: submission.id, student_id: user.id, applicant: submission.applicant, responses: submission.responses, evaluation: submission.evaluation ?? null, status: submission.status, submitted_at: submission.submittedAt, duration: submission.duration, updated_at: new Date().toISOString() })
-      if (error) throw error
-    }
+    // Submissions are created by the API (which scores them); staff only
+    // record their evaluation on an existing row.
+    const { data, error } = await supabase
+      .from('elp_submissions')
+      .update({ evaluation: submission.evaluation ?? null, status: submission.status, updated_at: new Date().toISOString() })
+      .eq('id', submission.id)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) throw new Error('This assessment could not be updated. Refresh and try again.')
   }
 }
 

@@ -43,6 +43,31 @@ const programOverview = [
 ]
 
 export const pageContent: Record<string, PageContent> = {
+  '/cdl-assessment/': {
+    eyebrow: 'Know where you stand',
+    intro: 'A CDL Assessment checks your English proficiency and readiness before training or testing. Read about it freely here; create an account only when you are ready to request one.',
+    sections: [
+      {
+        title: 'What the assessment covers',
+        body: 'Every assessment starts with an online English Language Proficiency (ELP) test you take from your student portal, followed by an in-person evaluation scheduled by admissions. The ELP screening follows 49 CFR §391.11(b)(2) and is not a CDL test or certification.',
+        bullets: ['Oral interview prompts', 'Traffic signs, including critical signs', 'Reading comprehension', 'Driver logs and vehicle defect reports'],
+      },
+      {
+        title: 'Requirements',
+        body: 'Have these ready before you request an assessment so admissions can review it quickly.',
+        bullets: ['At least 18 years old', "A driver's license or Commercial Learner's Permit (CLP) to upload", 'A quiet place and 35–45 minutes for the online test', 'A valid email address and phone number'],
+      },
+      {
+        title: 'Scheduling and fees',
+        body: 'Tell us which days and times work for you when you apply; admissions confirms the date and location in your student portal. A $25 application fee can be paid online after you submit, and admissions will confirm any other assessment costs with you before your appointment.',
+        bullets: ['Choose your preferred days and times', 'Track your status online', 'Date and location confirmed in your portal', 'Pay the application fee securely online'],
+      },
+      {
+        title: 'How to apply',
+        body: 'Select Apply for a CDL Assessment, then sign in or create a free account. You return straight to your request, can save it as a draft, and can track its status from your dashboard after you submit.',
+      },
+    ],
+  },
   '/our-program/': {
     eyebrow: 'Career-focused training',
     intro: 'Build the practical knowledge, safe-driving habits and confidence required to pursue a professional Class A driving career.',
@@ -326,6 +351,8 @@ function PageHero({ title, eyebrow, intro }: { title: string; eyebrow: string; i
 }
 
 function EnrollmentCallout() {
+  const { pathname } = useLocation()
+  const assessment = pathname.replace(/\/?$/, '/') === '/cdl-assessment/'
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f4f6fa' }}>
       <Container>
@@ -334,11 +361,16 @@ function EnrollmentCallout() {
             <Box>
               <Typography variant="overline" color="#ff7379" fontWeight={900} letterSpacing=".13em">Your next step</Typography>
               <Typography variant="h3" fontWeight={950} letterSpacing="-.04em" mt={0.75}>Ready to move your career forward?</Typography>
-              <Typography color="rgba(255,255,255,.7)" mt={1.5}>Request program information and speak with the admissions team.</Typography>
+              <Typography color="rgba(255,255,255,.7)" mt={1.5}>Apply online in minutes, save your progress, and track your status from your student portal.</Typography>
             </Box>
-            <Button onClick={openEnrollment} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ flex: '0 0 auto', px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>
-              Start your application
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flex: '0 0 auto' }}>
+              <Button component={RouterLink} to={assessment ? '/portal/apply/assessment' : '/portal/apply/training'} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>
+                {assessment ? 'Apply for a CDL Assessment' : 'Apply for CDL Training'}
+              </Button>
+              <Button onClick={openEnrollment} variant="outlined" size="large" sx={{ px: 3, py: 1.5, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>
+                Request information
+              </Button>
+            </Stack>
           </Stack>
         </Card>
       </Container>

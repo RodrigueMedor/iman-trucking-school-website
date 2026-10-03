@@ -11,6 +11,7 @@ import {
   listMyApplications, getMyStudent, startRegistrationCheckout, toMessage,
   type Application, type StudentProfile,
 } from '../api'
+import { getPaymentStatus } from '../../lib/stripe'
 import { TYPE_LABEL, type ApplicationType } from '../model'
 import { StatusChip } from '../StatusChip'
 import { PayFeeDialog } from '../PayFeeDialog'
@@ -63,7 +64,10 @@ export function Dashboard() {
 
   useEffect(() => {
     let alive = true
-    Promise.all([getMyStudent(), listMyApplications()])
+    const checkoutSession = params.get('session_id')
+    // Returning from Stripe: let the API reconcile the payment before loading.
+    ;(checkoutSession ? getPaymentStatus(checkoutSession).catch(() => null) : Promise.resolve(null))
+      .then(() => Promise.all([getMyStudent(), listMyApplications()]))
       .then(([s, apps]) => {
         if (!alive) return
         setStudent(s)
@@ -71,6 +75,7 @@ export function Dashboard() {
       })
       .catch(err => alive && setError(toMessage(err)))
     return () => { alive = false }
+    // Load once; the payment params are only read on arrival.
   }, [])
 
   const apps = applications ?? []

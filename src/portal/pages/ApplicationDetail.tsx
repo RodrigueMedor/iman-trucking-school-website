@@ -8,6 +8,7 @@ import {
   getApplication, getElpResult, listDocuments, listEvents, startApplicationCheckout, toMessage,
   type Application, type ApplicationDocument, type ApplicationEvent, type ElpResult,
 } from '../api'
+import { getPaymentStatus } from '../../lib/stripe'
 import { isEditableByStudent, STATUS_META, TYPE_LABEL, type ApplicationStatus } from '../model'
 import { StatusChip } from '../StatusChip'
 import { DocumentList } from '../DocumentUploader'
@@ -59,7 +60,10 @@ export function ApplicationDetail() {
 
   useEffect(() => {
     let alive = true
+    const checkoutSession = params.get('session_id')
     ;(async () => {
+      // Returning from Stripe: let the API reconcile the payment before loading.
+      if (checkoutSession) await getPaymentStatus(checkoutSession).catch(() => null)
       const application = await getApplication(id)
       if (!application) return alive && setApp(null)
       const [ev, docs, result] = await Promise.all([
