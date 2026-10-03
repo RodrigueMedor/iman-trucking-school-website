@@ -217,7 +217,8 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
                 <PasswordField name="confirmPassword" label="Confirm new password" value={form.confirmPassword} onChange={set('confirmPassword')} error={errors.confirmPassword} autoComplete="new-password" />
               </>
             ) : (
-              <TextField fullWidth name="email" label="Email" type="email" autoComplete="email" value={form.email}
+              <TextField fullWidth required name="email" label="Email" type="email" autoComplete="email" value={form.email}
+                slotProps={{ htmlInput: { inputMode: 'email', spellCheck: false, maxLength: 254 } }}
                 onChange={e => set('email')(e.target.value)} error={Boolean(errors.email)} helperText={errors.email} />
             )}
             <Button type="submit" variant="contained" color="secondary" size="large" disabled={busy || (resetting && !session)} sx={{ py: 1.5 }}>
@@ -265,7 +266,8 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
                 onChange={e => set('lastName')(e.target.value)} error={Boolean(errors.lastName)} helperText={errors.lastName} />
             </Stack>
           )}
-          <TextField fullWidth name="email" label="Email" type="email" autoComplete="email" value={form.email}
+          <TextField fullWidth required name="email" label="Email" type="email" autoComplete="email" value={form.email}
+            slotProps={{ htmlInput: { inputMode: 'email', spellCheck: false, maxLength: 254 } }}
             onChange={e => set('email')(e.target.value)} error={Boolean(errors.email)} helperText={errors.email} />
           <PasswordField name="password" label="Password" value={form.password} onChange={set('password')} error={errors.password}
             helperText={registering ? `At least ${MIN_PASSWORD_LENGTH} characters` : undefined}

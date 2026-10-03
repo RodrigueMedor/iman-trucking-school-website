@@ -14,6 +14,14 @@ export const US_STATES = [
 
 const required = (label: string, max = 100) => z.string().trim().min(1, `${label} is required`).max(max, `${label} is too long`)
 
+/** RFC-compatible practical limit; ownership is verified separately by email confirmation. */
+export const emailSchema = z.string()
+  .trim()
+  .min(1, 'Enter your email address')
+  .max(254, 'Email address is too long')
+  .email('Enter a valid email address')
+  .transform(value => value.toLowerCase())
+
 function ageOn(dob: Date, today = new Date()) {
   let age = today.getFullYear() - dob.getFullYear()
   const m = today.getMonth() - dob.getMonth()
@@ -24,7 +32,7 @@ function ageOn(dob: Date, today = new Date()) {
 export const profileSchema = z.object({
   firstName: required('First name'),
   lastName: required('Last name'),
-  email: z.string().trim().email('Enter a valid email address'),
+  email: emailSchema,
   phone: z.string().trim().refine(v => /^\d{10,15}$/.test(v.replace(/\D/g, '')), 'Enter a valid phone number'),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter your date of birth')
     .refine(v => !Number.isNaN(Date.parse(v)) && ageOn(new Date(`${v}T00:00:00`)) >= 18, 'You must be at least 18 years old')
@@ -64,14 +72,14 @@ export type AssessmentChoiceInput = z.infer<typeof assessmentChoiceSchema>
 export const MIN_PASSWORD_LENGTH = 10
 
 export const signInSchema = z.object({
-  email: z.string().trim().min(1, 'Enter your email address').email('Enter a valid email address'),
+  email: emailSchema,
   password: z.string().min(1, 'Enter your password'),
 })
 
 export const signUpSchema = z.object({
   firstName: required('First name'),
   lastName: required('Last name'),
-  email: z.string().trim().email('Enter a valid email address'),
+  email: emailSchema,
   password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(72, 'Use at most 72 characters'),
   confirmPassword: z.string(),
 }).refine(value => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' })

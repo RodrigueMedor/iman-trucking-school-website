@@ -90,6 +90,15 @@ describe('signUpSchema', () => {
   })
   it('rejects an invalid email', () => {
     expect(signUpSchema.safeParse({ ...valid, email: 'not-an-email' }).success).toBe(false)
+    expect(signUpSchema.safeParse({ ...valid, email: 'person@' }).success).toBe(false)
+    expect(signUpSchema.safeParse({ ...valid, email: '@example.com' }).success).toBe(false)
+    expect(signUpSchema.safeParse({ ...valid, email: 'person example.com' }).success).toBe(false)
+  })
+
+  it('trims and normalizes a valid email address', () => {
+    const result = signUpSchema.safeParse({ ...valid, email: '  Student@Example.COM  ' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.email).toBe('student@example.com')
   })
 })
 
