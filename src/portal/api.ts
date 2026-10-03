@@ -65,7 +65,7 @@ export type Application = {
   reviewed_at: string | null
   created_at: string
   updated_at: string
-  course?: { name: string; code: string } | null
+  course?: { name: string; code: string; application_fee_cents: number | null } | null
   session?: { name: string; starts_at: string; ends_at: string } | null
 }
 
@@ -99,7 +99,7 @@ export type AcademicSession = { id: string; name: string; starts_at: string; end
 export type ElpResult = { id: string; evaluation: ElpEvaluation | null; submitted_at: string; duration: string }
 
 const BUCKET = 'student-documents'
-const APPLICATION_COLUMNS = '*, course:cdl_courses(name, code), session:cdl_academic_sessions(name, starts_at, ends_at)'
+const APPLICATION_COLUMNS = '*, course:cdl_courses(name, code, application_fee_cents), session:cdl_academic_sessions(name, starts_at, ends_at)'
 
 function client() {
   if (!supabase) throw new ApiError('The student portal is not available right now. Please contact admissions.', 503)
