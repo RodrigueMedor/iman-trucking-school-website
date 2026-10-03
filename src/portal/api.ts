@@ -130,6 +130,12 @@ export async function updateMyStudent(patch: StudentProfilePatch): Promise<Stude
   return check(await client().from('cdl_students').update(patch).eq('user_id', user.id).select('*').single()) as StudentProfile
 }
 
+/** Keeps the account display name (shown in the portal header) in sync. */
+export async function updateMyDisplayName(fullName: string): Promise<void> {
+  const user = await currentUser()
+  check(await client().from('profiles').update({ full_name: fullName }).eq('id', user.id))
+}
+
 // ------------------------------------------------------------- applications
 
 export async function listMyApplications(): Promise<Application[]> {
