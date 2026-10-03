@@ -17,6 +17,9 @@ export type PortalAuthMode = 'sign-in' | 'register' | 'forgot' | 'reset'
 
 /** Explains why the visitor is being asked to sign in, based on where they were going. */
 function intentFor(next: string) {
+  if (next.startsWith('/portal/apply/training') && next.includes('from=financing')) {
+    return 'Create or sign in to your IMAN student account first. Begin your CDL Training application, then continue securely to Liberty Career Finance from the program step.'
+  }
   if (next.startsWith('/portal/apply/training')) return 'Sign in or create a free account to apply for CDL Training. You can save your application and finish it later.'
   if (next.startsWith('/portal/apply/assessment')) return 'Sign in or create a free account to request a CDL Assessment. You can save your request and finish it later.'
   if (next.startsWith('/portal/documents')) return 'Sign in to upload and view your documents.'

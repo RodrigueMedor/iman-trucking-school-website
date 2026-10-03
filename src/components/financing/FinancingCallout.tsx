@@ -1,8 +1,11 @@
-import { Box, Container, Link, Paper, Stack, Typography } from '@mui/material'
+import { Box, Button, Container, Link, Paper, Skeleton, Stack, Typography } from '@mui/material'
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded'
+import LoginRoundedIcon from '@mui/icons-material/LoginRounded'
+import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { FINANCING_DISCLOSURE, FINANCING_PARTNER, LIBERTY } from '../../config/financing'
 import { LibertyFinancingButton } from './LibertyFinancingButton'
+import { useAuth } from '../../contexts/AuthContext'
 
 type Variant = 'section' | 'card' | 'inline' | 'hero'
 
@@ -24,6 +27,9 @@ export function FinancingCallout({
 }) {
   const compact = variant !== 'section'
   const hero = variant === 'hero'
+  const { loading, profileReady, session, profile } = useAuth()
+  const authPending = loading || Boolean(session && !profileReady)
+  const studentCanApply = Boolean(session && profile?.active && profile.role === 'student')
 
   const body = (
     <Stack spacing={hero ? 1.75 : compact ? 1.5 : 2} sx={{ minWidth: 0, position: 'relative', zIndex: 1 }}>
@@ -58,13 +64,49 @@ export function FinancingCallout({
         Financing options may be available to qualified students through our financing partner, <strong>{FINANCING_PARTNER}</strong>.
         {variant === 'inline' ? ' Applying is optional and does not affect your IMAN application.' : ''}
       </Typography>
-      <LibertyFinancingButton />
-      <Typography variant="body2" color="text.secondary">
-        Opens {FINANCING_PARTNER}'s secure application in a new window. Keep this page open to continue with Iman Trucking School.{' '}
-        <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light">
-          Button not working? Open the application directly.
-        </Link>
-      </Typography>
+      {authPending ? (
+        <Stack spacing={1} aria-label="Checking student account">
+          <Skeleton variant="rounded" width="100%" height={48} />
+          <Skeleton width="75%" />
+        </Stack>
+      ) : studentCanApply ? (
+        <>
+          <LibertyFinancingButton />
+          <Typography variant="body2" color="text.secondary">
+            Opens {FINANCING_PARTNER}'s secure application in a new window. Keep this page open to continue with Iman Trucking School.{' '}
+            <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light">
+              Button not working? Open the application directly.
+            </Link>
+          </Typography>
+        </>
+      ) : (
+        <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: hero ? 'rgba(7,26,51,.055)' : '#f3f6fa', border: 1, borderColor: 'divider' }}>
+          <Typography fontWeight={900} color="primary.main">Start with your IMAN student account</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5, lineHeight: 1.6 }}>
+            Create an account or sign in, then begin your CDL Training application before continuing securely to {FINANCING_PARTNER}.
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              component={RouterLink}
+              to="/portal/register?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
+              variant="contained"
+              color="secondary"
+              startIcon={<PersonAddRoundedIcon />}
+            >
+              Create account
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/portal/sign-in?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
+              variant="outlined"
+              color="primary"
+              startIcon={<LoginRoundedIcon />}
+            >
+              Sign in
+            </Button>
+          </Stack>
+        </Box>
+      )}
       <Typography variant="caption" color="text.secondary" component="p" sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5, lineHeight: 1.6 }}>
         {FINANCING_DISCLOSURE}
         {showLearnMore && (
