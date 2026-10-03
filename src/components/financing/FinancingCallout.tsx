@@ -4,7 +4,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import { FINANCING_DISCLOSURE, FINANCING_PARTNER, LIBERTY } from '../../config/financing'
 import { LibertyFinancingButton } from './LibertyFinancingButton'
 
-type Variant = 'section' | 'card' | 'inline'
+type Variant = 'section' | 'card' | 'inline' | 'hero'
 
 /**
  * "Need Help Paying for CDL Training?" — IMAN's framing around the partner's
@@ -23,11 +23,24 @@ export function FinancingCallout({
   showLearnMore?: boolean
 }) {
   const compact = variant !== 'section'
+  const hero = variant === 'hero'
 
   const body = (
-    <Stack spacing={compact ? 1.5 : 2} sx={{ minWidth: 0 }}>
+    <Stack spacing={hero ? 1.75 : compact ? 1.5 : 2} sx={{ minWidth: 0, position: 'relative', zIndex: 1 }}>
+      {hero && (
+        <Typography
+          variant="overline"
+          sx={{
+            alignSelf: 'flex-start', px: 1.25, py: 0.35, borderRadius: 10,
+            bgcolor: 'rgba(214,31,44,.1)', color: 'secondary.main',
+            fontWeight: 950, letterSpacing: '.11em', lineHeight: 1.6,
+          }}
+        >
+          Financing available
+        </Typography>
+      )}
       <Stack direction="row" spacing={1.5} alignItems="center">
-        <Box sx={{ width: compact ? 40 : 48, height: compact ? 40 : 48, flexShrink: 0, borderRadius: 2.5, display: 'grid', placeItems: 'center', bgcolor: 'rgba(214,31,44,.1)', color: 'secondary.main' }}>
+        <Box sx={{ width: hero ? 50 : compact ? 40 : 48, height: hero ? 50 : compact ? 40 : 48, flexShrink: 0, borderRadius: 2.5, display: 'grid', placeItems: 'center', bgcolor: hero ? 'secondary.main' : 'rgba(214,31,44,.1)', color: hero ? 'white' : 'secondary.main', boxShadow: hero ? '0 10px 24px rgba(214,31,44,.28)' : 'none' }}>
           <PaymentsRoundedIcon />
         </Box>
         <Box>
@@ -36,7 +49,7 @@ export function FinancingCallout({
               Tuition financing
             </Typography>
           )}
-          <Typography component="h2" variant={compact ? 'h6' : 'h4'} color="primary.main" fontWeight={950} letterSpacing="-.02em">
+          <Typography component="h2" variant={hero ? 'h5' : compact ? 'h6' : 'h4'} color="primary.main" fontWeight={950} letterSpacing="-.025em" lineHeight={1.15}>
             {title}
           </Typography>
         </Box>
@@ -67,6 +80,29 @@ export function FinancingCallout({
   if (variant === 'inline') {
     return (
       <Box sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 3, border: 1, borderColor: 'divider', bgcolor: '#f7f9fc' }}>
+        {body}
+      </Box>
+    )
+  }
+  if (variant === 'hero') {
+    return (
+      <Box
+        component="aside"
+        aria-label="CDL training financing"
+        sx={{
+          position: 'relative', overflow: 'hidden', p: { xs: 2.5, sm: 3 },
+          borderRadius: 4, bgcolor: 'rgba(255,255,255,.96)',
+          border: '1px solid rgba(255,255,255,.75)',
+          borderTop: '5px solid', borderTopColor: 'secondary.main',
+          boxShadow: '0 28px 70px rgba(0,0,0,.3)',
+          backdropFilter: 'blur(18px)',
+          '&::after': {
+            content: '""', position: 'absolute', width: 180, height: 180,
+            right: -85, top: -90, borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(214,31,44,.15), rgba(214,31,44,0) 70%)',
+          },
+        }}
+      >
         {body}
       </Box>
     )

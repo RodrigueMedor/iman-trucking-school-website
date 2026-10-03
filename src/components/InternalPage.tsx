@@ -22,8 +22,9 @@ import { pageTitles } from '../navigation'
 import { useContent } from '../contexts/ContentContext'
 import { FinancingCallout } from './financing/FinancingCallout'
 
-// Pages that show the "Need Help Paying for CDL Training?" financing section.
-const FINANCING_PAGES = ['/tuition-financing/', '/cdl-training/', '/our-program/', '/class-a-cdl/', '/cdl-training-program-orlando-florida/']
+// The full public financing section lives on its dedicated page. The homepage
+// hero carries the primary financing callout.
+const FINANCING_PAGES = ['/tuition-financing/']
 
 export type PageSection = {
   title: string
