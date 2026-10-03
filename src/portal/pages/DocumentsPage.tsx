@@ -20,7 +20,10 @@ export function DocumentsPage() {
         setDocuments(d)
         setTarget(a.find(x => isEditableByStudent(x.status))?.id ?? '')
       })
-      .catch(err => setError(toMessage(err)))
+      .catch(err => {
+        setError(toMessage(err))
+        setApps([])
+      })
   }, [])
 
   const editableApps = useMemo(() => (apps ?? []).filter(a => isEditableByStudent(a.status)), [apps])

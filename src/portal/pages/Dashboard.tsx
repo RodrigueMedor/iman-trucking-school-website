@@ -73,7 +73,11 @@ export function Dashboard() {
         setStudent(s)
         setApplications(apps)
       })
-      .catch(err => alive && setError(toMessage(err)))
+      .catch(err => {
+        if (!alive) return
+        setError(toMessage(err))
+        setApplications([])
+      })
     return () => { alive = false }
     // Load once; the payment params are only read on arrival.
   }, [])

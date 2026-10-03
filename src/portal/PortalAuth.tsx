@@ -65,7 +65,7 @@ function AuthShell({ children }: { children: ReactNode }) {
       <Container maxWidth="sm" disableGutters>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
           <MuiLink component={Link} to="/" underline="none" aria-label="Iman Trucking School home">
-            <Box component="img" src="/images/iman-logo.png" alt="Iman Trucking School" sx={{ height: { xs: 44, md: 52 }, display: 'block' }} />
+            <Box component="img" src="/images/iman-logo.png" alt="Iman Trucking School" sx={{ height: { xs: 48, md: 56 }, display: 'block', bgcolor: '#08085f', borderRadius: 1.5, p: 0.5 }} />
           </MuiLink>
           <Button component={Link} to="/" startIcon={<ArrowBack />} color="primary" size="small">Back to website</Button>
         </Stack>

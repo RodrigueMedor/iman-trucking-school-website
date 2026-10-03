@@ -44,7 +44,10 @@ export function SchedulePage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    listMyApplications().then(setApps).catch(err => setError(toMessage(err)))
+    listMyApplications().then(setApps).catch(err => {
+      setError(toMessage(err))
+      setApps([])
+    })
   }, [])
 
   const scheduled = (apps ?? []).filter(a => a.scheduled_at).sort((a, b) => a.scheduled_at!.localeCompare(b.scheduled_at!))

@@ -46,9 +46,7 @@ export function PortalLayout() {
   const drawer = (
     <Box component="nav" aria-label="Student portal" sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: NAVY, color: 'white' }}>
       <Box component={Link} to="/portal/" onClick={() => setOpen(false)} sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, textDecoration: 'none', color: 'inherit' }}>
-        <Box sx={{ bgcolor: 'white', borderRadius: 2, p: 0.75, display: 'grid', placeItems: 'center' }}>
-          <Box component="img" src="/images/iman-logo.png" alt="" sx={{ height: 34, display: 'block' }} />
-        </Box>
+        <Box component="img" src="/images/iman-logo.png" alt="" sx={{ height: 44, display: 'block' }} />
         <Box>
           <Typography fontWeight={950} fontSize={15} lineHeight={1.2}>IMAN TRUCKING SCHOOL</Typography>
           <Typography color="rgba(255,255,255,.6)" fontSize={11} letterSpacing=".13em" fontWeight={900}>STUDENT PORTAL</Typography>
@@ -95,7 +93,7 @@ export function PortalLayout() {
             <MenuRounded />
           </IconButton>
           <Box component={Link} to="/portal/" sx={{ display: { xs: 'block', md: 'none' } }}>
-            <Box component="img" src="/images/iman-logo.png" alt="Iman Trucking School" sx={{ height: 36, display: 'block' }} />
+            <Box component="img" src="/images/iman-logo.png" alt="Iman Trucking School" sx={{ height: 40, display: 'block', bgcolor: NAVY, borderRadius: 1.5, p: 0.4 }} />
           </Box>
           <Box flex={1} sx={{ display: { xs: 'none', md: 'block' } }}>
             <Typography fontWeight={900} color={NAVY}>Student Portal</Typography>

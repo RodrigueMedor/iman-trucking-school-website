@@ -25,7 +25,10 @@ export function ApplicationsList() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    listMyApplications().then(setApps).catch(err => setError(toMessage(err)))
+    listMyApplications().then(setApps).catch(err => {
+      setError(toMessage(err))
+      setApps([])
+    })
   }, [])
 
   const shown = useMemo(() => (apps ?? []).filter(a =>
