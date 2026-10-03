@@ -366,3 +366,20 @@ export async function emailElpReport(resultId: string): Promise<void> {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new ApiError(body?.error || 'The report could not be emailed.', response.status)
 }
+
+// ----------------------------------------------------------------- payments
+
+async function startCheckout(path: string, body: Record<string, unknown>) {
+  const { url } = await authedFetch<{ url?: string }>(path, { method: 'POST', body: JSON.stringify(body) })
+  if (!url) throw new ApiError('Checkout could not be started. Please try again.', 500)
+  window.location.assign(url)
+}
+
+/** Optional application fee, available once the application is submitted. */
+export function startApplicationCheckout(applicationId: string, paymentPolicyAccepted: boolean, paymentPolicySignature: string) {
+  return startCheckout('/api/create-application-checkout', { applicationId, paymentPolicyAccepted, paymentPolicySignature })
+}
+
+export function startRegistrationCheckout(paymentPolicyAccepted: boolean, paymentPolicySignature: string) {
+  return startCheckout('/api/create-registration-checkout', { paymentPolicyAccepted, paymentPolicySignature })
+}
