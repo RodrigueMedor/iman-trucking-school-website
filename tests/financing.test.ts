@@ -44,11 +44,16 @@ describe('parseLibertyMessage', () => {
   it('accepts the frame status messages', () => {
     expect(parseLibertyMessage({ source: 'iman-liberty', status: 'ready' })).toBe('ready')
     expect(parseLibertyMessage({ source: 'iman-liberty', status: 'failed' })).toBe('failed')
+    expect(parseLibertyMessage({ source: 'iman-liberty', status: 'clicked' })).toBe('clicked')
   })
   it('ignores anything else', () => {
     expect(parseLibertyMessage({ source: 'other', status: 'ready' })).toBeNull()
     expect(parseLibertyMessage({ source: 'iman-liberty', status: 'hacked' })).toBeNull()
     expect(parseLibertyMessage('ready')).toBeNull()
     expect(parseLibertyMessage(null)).toBeNull()
+  })
+
+  it('reports when the Liberty application button is clicked', () => {
+    expect(libertyFrameDocument()).toMatch(/addEventListener\('click'[^]*iman-liberty[^]*clicked/)
   })
 })

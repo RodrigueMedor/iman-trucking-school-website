@@ -136,6 +136,12 @@ export async function updateMyDisplayName(fullName: string): Promise<void> {
   check(await client().from('profiles').update({ full_name: fullName }).eq('id', user.id))
 }
 
+/** Records only that the student opened Liberty; no lender data is collected. */
+export async function recordFinancingReferral(): Promise<void> {
+  await currentUser()
+  check(await client().rpc('record_financing_referral'))
+}
+
 // ------------------------------------------------------------- applications
 
 export async function listMyApplications(): Promise<Application[]> {

@@ -22,7 +22,7 @@ export const FINANCING_DISCLOSURE =
   'credit decisions and does not receive or store your financing application. ' +
   `${FINANCING_PARTNER}'s own terms and privacy policy apply.`
 
-export type LibertyStatus = 'ready' | 'failed'
+export type LibertyStatus = 'ready' | 'failed' | 'clicked'
 const MESSAGE_SOURCE = 'iman-liberty'
 
 /**
@@ -34,7 +34,9 @@ const MESSAGE_SOURCE = 'iman-liberty'
 export function libertyFrameDocument(): string {
   const report = (status: string) =>
     `parent.postMessage({source:'${MESSAGE_SOURCE}',status:${status}},'*')`
-  const onload = report(`document.querySelector('#${LIBERTY.containerId} button')?'ready':'failed'`)
+  const onload = `var b=document.querySelector('#${LIBERTY.containerId} button');` +
+    `${report(`b?'ready':'failed'`)};` +
+    `if(b)b.addEventListener('click',function(){${report(`'clicked'`)}})`
   const onerror = report(`'failed'`)
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
@@ -53,5 +55,5 @@ export function parseLibertyMessage(data: unknown): LibertyStatus | null {
   if (!data || typeof data !== 'object') return null
   const { source, status } = data as { source?: unknown; status?: unknown }
   if (source !== MESSAGE_SOURCE) return null
-  return status === 'ready' || status === 'failed' ? status : null
+  return status === 'ready' || status === 'failed' || status === 'clicked' ? status : null
 }

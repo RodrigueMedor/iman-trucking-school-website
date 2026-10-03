@@ -6,6 +6,8 @@ import { Link as RouterLink } from 'react-router-dom'
 import { FINANCING_DISCLOSURE, FINANCING_PARTNER, LIBERTY } from '../../config/financing'
 import { LibertyFinancingButton } from './LibertyFinancingButton'
 import { useAuth } from '../../contexts/AuthContext'
+import { recordFinancingReferral } from '../../portal/api'
+import { useCallback } from 'react'
 
 type Variant = 'section' | 'card' | 'inline' | 'hero'
 
@@ -30,6 +32,9 @@ export function FinancingCallout({
   const { loading, profileReady, session, profile } = useAuth()
   const authPending = loading || Boolean(session && !profileReady)
   const studentCanApply = Boolean(session && profile?.active && profile.role === 'student')
+  const recordReferral = useCallback(() => {
+    void recordFinancingReferral().catch(error => console.error('Unable to record financing referral:', error))
+  }, [])
 
   const body = (
     <Stack spacing={hero ? 1.75 : compact ? 1.5 : 2} sx={{ minWidth: 0, position: 'relative', zIndex: 1 }}>
@@ -71,10 +76,10 @@ export function FinancingCallout({
         </Stack>
       ) : studentCanApply ? (
         <>
-          <LibertyFinancingButton />
+          <LibertyFinancingButton onApply={recordReferral} />
           <Typography variant="body2" color="text.secondary">
             Opens {FINANCING_PARTNER}'s secure application in a new window. Keep this page open to continue with Iman Trucking School.{' '}
-            <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light">
+            <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light" onClick={recordReferral}>
               Button not working? Open the application directly.
             </Link>
           </Typography>

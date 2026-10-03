@@ -19,6 +19,7 @@ import { CDLScoreManagement } from './pages/admin/CDLScoreManagement'
 import { CDLApplications } from './pages/admin/CDLApplications'
 import { CDLEnrollments } from './pages/admin/CDLEnrollments'
 import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
+import { FinancingReferrals } from './pages/admin/FinancingReferrals'
 import { PortalAuth } from './portal/PortalAuth'
 import { RequireStudent } from './portal/RequireStudent'
 import { PortalLayout } from './portal/PortalLayout'
@@ -59,6 +60,7 @@ export function App() {
             <Route path="content/" element={<AdminContent />} />
             <Route path="cdl-scores/" element={<CDLScoreManagement />} />
             <Route path="cdl-applications/" element={<CDLApplications />} />
+            <Route path="financing-referrals/" element={<FinancingReferrals />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>

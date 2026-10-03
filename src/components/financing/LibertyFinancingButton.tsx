@@ -15,7 +15,7 @@ const FRAME_HEIGHT = 64
  * the IMAN page (no allow-same-origin), so the script never sees the student's
  * session; it may only open Liberty's application in a new window.
  */
-export function LibertyFinancingButton() {
+export function LibertyFinancingButton({ onApply }: { onApply?: () => void } = {}) {
   const frame = useRef<HTMLIFrameElement>(null)
   const [status, setStatus] = useState<'loading' | LibertyStatus>('loading')
   const srcDoc = useMemo(() => libertyFrameDocument(), [])
@@ -24,6 +24,7 @@ export function LibertyFinancingButton() {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return
       const next = parseLibertyMessage(event.data)
+      if (next === 'clicked') return onApply?.()
       if (next) setStatus(current => (current === 'loading' ? next : current))
     }
     window.addEventListener('message', onMessage)
@@ -32,7 +33,7 @@ export function LibertyFinancingButton() {
       window.removeEventListener('message', onMessage)
       window.clearTimeout(timeout)
     }
-  }, [])
+  }, [onApply])
 
   const onFrameLoad = () => {
     window.setTimeout(() => setStatus(current => (current === 'loading' ? 'failed' : current)), READY_GRACE_MS)
@@ -46,6 +47,7 @@ export function LibertyFinancingButton() {
           href={LIBERTY.l}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={onApply}
           variant="contained"
           color="secondary"
           endIcon={<OpenInNewRoundedIcon />}
