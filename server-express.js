@@ -853,6 +853,55 @@ app.post('/api/applications/:id/notify', studentOnly, async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
+// Instructor accounts are created server-side by a super admin. The role is
+// set in app_metadata, which only the service role can write; the database
+// ignores roles in user-editable metadata.
+// ---------------------------------------------------------------------------
+
+const instructorSchema = z.object({
+  firstName: z.string().trim().min(1, 'First name is required.').max(100),
+  lastName: z.string().trim().min(1, 'Last name is required.').max(100),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(254),
+  password: z.string().min(10, 'Password must be at least 10 characters.').max(72),
+})
+
+app.post('/api/admin/instructors', requireUser, rateLimit, async (req, res) => {
+  try {
+    const { data: caller } = await supabase
+      .from('profiles')
+      .select('role, active')
+      .eq('id', req.user.id)
+      .maybeSingle()
+    if (!caller?.active || caller.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only super administrators can create instructor accounts.' })
+    }
+
+    const parsed = instructorSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid instructor details.' })
+    }
+    const { firstName, lastName, email, password } = parsed.data
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { first_name: firstName, last_name: lastName, full_name: `${firstName} ${lastName}` },
+      app_metadata: { role: 'instructor' },
+    })
+    if (error) {
+      if (/already/i.test(error.message)) return res.status(409).json({ error: 'An account with this email already exists.' })
+      console.error('Failed to create instructor:', error)
+      return res.status(500).json({ error: 'The instructor account could not be created.' })
+    }
+    res.status(201).json({ id: data.user.id })
+  } catch (error) {
+    console.error('Error creating instructor:', error)
+    res.status(500).json({ error: 'The instructor account could not be created.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Webhook event dispatch
 // ---------------------------------------------------------------------------
 

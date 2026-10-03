@@ -14,7 +14,7 @@ import {
 } from '@mui/material'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import { Link } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { authedFetch } from '../../portal/api'
 
 export function CreateInstructor() {
   const [loading, setLoading] = useState(false)
@@ -47,28 +47,17 @@ export function CreateInstructor() {
     }
 
     try {
-      if (!supabase) throw new Error('Supabase is not configured.')
-
-      // Sign up the instructor with Supabase
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            full_name: `${formData.firstName} ${formData.lastName}`,
-            role: 'instructor',
-          },
-        },
+      // Created by the API with the service role so the instructor role is
+      // set in app_metadata (a browser sign-up cannot assign roles).
+      await authedFetch('/api/admin/instructors', {
+        method: 'POST',
+        body: JSON.stringify({
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          password: formData.password,
+        }),
       })
-
-      if (signUpError) throw signUpError
-
-      if (!data.user) throw new Error('Supabase did not return the new instructor account.')
-
-      // The database auth trigger atomically creates profiles, cdl_users, and
-      // cdl_instructors. Writing them again here causes duplicate primary keys.
 
       setSuccess(`Instructor account created successfully for ${formData.email}. They can now log in.`)
       setFormData({

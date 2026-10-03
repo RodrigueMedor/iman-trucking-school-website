@@ -31,6 +31,7 @@ const authed = [
   '/api/create-registration-checkout',
   '/api/elp-submissions',
   '/api/applications/00000000-0000-0000-0000-000000000001/notify',
+  '/api/admin/instructors',
 ]
 
 describe('student API authorization', () => {
