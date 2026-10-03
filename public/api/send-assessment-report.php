@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 
 function respond(int $status, array $body): never
@@ -26,18 +26,75 @@ if ($raw === false || strlen($raw) > 100000) {
 }
 
 $payload = json_decode($raw, true);
-$recipient = filter_var(trim((string)($payload['recipient'] ?? '')), FILTER_VALIDATE_EMAIL);
-$result = is_array($payload['result'] ?? null) ? $payload['result'] : null;
-if (!$recipient || !$result || empty($result['id'])) {
-    respond(400, ['error' => 'A valid recipient and assessment result are required.']);
+$resultId = is_array($payload) ? trim((string)($payload['resultId'] ?? ($payload['result']['id'] ?? ''))) : '';
+if (!preg_match('/^ELP-[A-Z0-9]{4,40}$/', $resultId)) {
+    respond(400, ['error' => 'A valid assessment result is required.']);
 }
 
-$apiKey = getenv('RESEND_API_KEY');
-if (!$apiKey) {
+// The caller must be signed in. The report is loaded from Supabase with the
+// caller's own access token, so row-level security limits it to their own
+// results, and it is only ever sent to the account's verified email address.
+$supabaseUrl = rtrim((string)(getenv('SUPABASE_URL') ?: getenv('VITE_SUPABASE_URL')), '/');
+$supabaseKey = (string)(getenv('SUPABASE_PUBLISHABLE_KEY') ?: (getenv('VITE_SUPABASE_PUBLISHABLE_KEY') ?: getenv('VITE_SUPABASE_ANON_KEY')));
+if ($supabaseUrl === '' || $supabaseKey === '') {
     respond(503, ['error' => 'Email delivery is not configured. Download the report instead.']);
 }
 if (!function_exists('curl_init')) {
     respond(503, ['error' => 'The server PHP cURL extension is not enabled.']);
+}
+
+$authorization = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
+if (!preg_match('/^Bearer\s+([A-Za-z0-9._-]+)$/', $authorization, $match)) {
+    respond(401, ['error' => 'Sign in required.']);
+}
+$accessToken = $match[1];
+
+function supabase_get(string $url, string $apiKey, string $token): ?array
+{
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTPHEADER => [
+            'apikey: ' . $apiKey,
+            'Authorization: Bearer ' . $token,
+            'Accept: application/json',
+        ],
+    ]);
+    $body = curl_exec($curl);
+    $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    curl_close($curl);
+    if ($body === false || $status < 200 || $status >= 300) return null;
+    $decoded = json_decode((string)$body, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+$user = supabase_get($supabaseUrl . '/auth/v1/user', $supabaseKey, $accessToken);
+$recipient = $user ? filter_var((string)($user['email'] ?? ''), FILTER_VALIDATE_EMAIL) : false;
+if (!$recipient) {
+    respond(401, ['error' => 'Your session has expired. Sign in again.']);
+}
+
+$rows = supabase_get(
+    $supabaseUrl . '/rest/v1/elp_submissions?select=id,applicant,evaluation,submitted_at,duration&id=eq.' . rawurlencode($resultId),
+    $supabaseKey,
+    $accessToken
+);
+$stored = $rows[0] ?? null;
+if (!is_array($stored)) {
+    respond(404, ['error' => 'Assessment result not found.']);
+}
+$result = [
+    'id' => $stored['id'],
+    'applicant' => $stored['applicant'] ?? [],
+    'evaluation' => $stored['evaluation'] ?? null,
+    'submittedAt' => $stored['submitted_at'] ?? '',
+    'duration' => $stored['duration'] ?? '',
+];
+
+$apiKey = getenv('RESEND_API_KEY');
+if (!$apiKey) {
+    respond(503, ['error' => 'Email delivery is not configured. Download the report instead.']);
 }
 
 function text_value(mixed $value, int $limit = 200): string

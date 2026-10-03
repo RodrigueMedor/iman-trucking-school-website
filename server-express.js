@@ -50,6 +50,7 @@ if (process.env.RESEND_API_KEY) {
 }
 const emailFrom =
   process.env.EMAIL_FROM ||
+  process.env.APPLICATION_EMAIL_FROM ||
   process.env.RESULT_EMAIL_FROM ||
   'Iman Trucking School <info@imanlogistics.com>'
 
