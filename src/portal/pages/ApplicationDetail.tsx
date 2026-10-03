@@ -15,7 +15,7 @@ import { DocumentList } from '../DocumentUploader'
 import { ElpResultSummary } from '../ElpResultSummary'
 import { PayFeeDialog } from '../PayFeeDialog'
 import { PortalLoading } from '../RequireStudent'
-import { cardSx, formatDate, formatDateTime, NAVY, PageHeader, SectionCard } from '../ui'
+import { cardSx, formatDate, formatDateTime, formatSessionDate, NAVY, PageHeader, SectionCard } from '../ui'
 import { editPath } from './ApplicationsList'
 
 const TRACK: ApplicationStatus[] = ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'SCHEDULED', 'COMPLETED']
@@ -146,7 +146,7 @@ export function ApplicationDetail() {
                   ['Email', app.email],
                   ['Phone', app.phone ?? '—'],
                   ...(app.application_type === 'TRAINING'
-                    ? [['Program', app.course?.name ?? '—'], ['Start session', app.session ? `${app.session.name} (${formatDate(app.session.starts_at)})` : '—']]
+                    ? [['Program', app.course?.name ?? '—'], ['Start session', app.session ? `${app.session.name} (${formatSessionDate(app.session.starts_at)})` : '—']]
                     : [['Preferred dates', app.preferred_dates ?? '—']]),
                   ['Started', formatDate(app.created_at)],
                   ['Submitted', formatDate(app.submitted_at)],

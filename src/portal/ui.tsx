@@ -2,28 +2,10 @@ import type { ReactNode } from 'react'
 import { Box, Button, Paper, Skeleton, Stack, Typography } from '@mui/material'
 import { Link } from 'react-router-dom'
 
+export { formatBytes, formatDate, formatDateTime, formatSessionDate } from './format'
+
 export const NAVY = '#08085f'
 export const cardSx = { borderRadius: 3, border: 1, borderColor: 'divider', boxShadow: '0 10px 30px rgba(8,8,95,.06)' } as const
-
-export function formatDate(value: string | null | undefined) {
-  if (!value) return '—'
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-export function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? '—'
-    : date.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-}
-
-export function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: ReactNode; action?: ReactNode }) {
   return (

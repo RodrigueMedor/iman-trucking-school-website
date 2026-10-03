@@ -19,7 +19,7 @@ import {
 } from '../schemas'
 import { DocumentUploader } from '../DocumentUploader'
 import { PortalLoading } from '../RequireStudent'
-import { cardSx, formatDate, formatDateTime, NAVY, PageHeader } from '../ui'
+import { cardSx, formatDate, formatDateTime, formatSessionDate, NAVY, PageHeader } from '../ui'
 
 type StepKey = 'personal' | 'license' | 'program' | 'dates' | 'documents' | 'test' | 'review'
 const STEP_LABEL: Record<StepKey, string> = {
@@ -165,7 +165,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
     if (key === 'documents') {
       return documents.some(d => d.doc_type === 'LICENSE_CLP' && d.status !== 'REJECTED')
         ? {}
-        : { _step: `Upload your ${DOC_LABEL.LICENSE_CLP.toLowerCase()} to continue.` }
+        : { _step: 'Upload your driver\'s license or CLP to continue.' }
     }
     if (key === 'test') {
       return app?.elp_submission_id ? {} : { _step: 'Complete the online English test to continue.' }
@@ -460,7 +460,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
             {errors.courseId && <Typography color="error" variant="body2" sx={{ mb: 2 }}>{errors.courseId}</Typography>}
             <TextField select fullWidth label="Start session" value={form.sessionId} onChange={e => setField('sessionId')(e.target.value)} sx={{ mt: 2 }} {...err('sessionId')}>
               {sessions.length === 0 && <MenuItem value="" disabled>No sessions are open right now. Contact admissions.</MenuItem>}
-              {sessions.map(s => <MenuItem key={s.id} value={s.id}>{s.name} ({formatDate(s.starts_at)} – {formatDate(s.ends_at)})</MenuItem>)}
+              {sessions.map(s => <MenuItem key={s.id} value={s.id}>{s.name} ({formatSessionDate(s.starts_at)} – {formatSessionDate(s.ends_at)})</MenuItem>)}
             </TextField>
             <TextField fullWidth multiline minRows={3} label="Anything you'd like admissions to know? (optional)" value={form.statement}
               onChange={e => setField('statement')(e.target.value)} sx={{ mt: 3 }} {...err('statement')} />
@@ -486,7 +486,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
         {step === 'documents' && (
           <>
             <Typography color="text.secondary" sx={{ mb: 3 }}>
-              Upload a clear copy of your <strong>{DOC_LABEL.LICENSE_CLP.toLowerCase()}</strong> (required). Add any other documents admissions asked for.
+              Upload a clear copy of your <strong>driver's license or CLP</strong> (required). Add any other documents admissions asked for.
             </Typography>
             <DocumentUploader applicationId={app.id} documents={documents} onChange={docs => { setDocuments(docs); setStepError('') }} />
           </>
@@ -528,7 +528,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
               {type === 'TRAINING' ? (
                 <ReviewBlock title="Program" onEdit={() => void jump('program')} rows={[
                   ['Program', selectedCourse?.name ?? '—'],
-                  ['Start session', selectedSession ? `${selectedSession.name} (${formatDate(selectedSession.starts_at)})` : '—'],
+                  ['Start session', selectedSession ? `${selectedSession.name} (${formatSessionDate(selectedSession.starts_at)})` : '—'],
                   ...(form.statement ? [['Notes', form.statement] as [string, string]] : []),
                 ]} />
               ) : (
