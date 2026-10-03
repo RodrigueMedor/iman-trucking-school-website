@@ -5,7 +5,9 @@ import { Resend } from 'resend'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import { z } from 'zod'
 import { pathToFileURL } from 'node:url'
+import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
 
 dotenv.config()
 
@@ -21,10 +23,10 @@ const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: '2024-11-20.acacia' })
   : null
 
-// The API server uses the service-role key for payments so it can write the
-// payment records on behalf of unauthenticated applicants. The service-role
-// key (and STRIPE_SECRET_KEY) must stay server-only and never be prefixed
-// with VITE_ or shipped to the browser.
+// The API server uses the service-role key to verify student sessions and to
+// write payment records and ELP results. The service-role key (and
+// STRIPE_SECRET_KEY) must stay server-only and never be prefixed with VITE_
+// or shipped to the browser.
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const supabaseServiceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -36,7 +38,7 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null
 
-// Best-effort confirmation email sender for dispatcher registrations.
+// Best-effort email sender for payment and admissions notifications.
 // Used only if RESEND_API_KEY is configured on the server.
 let resend = null
 if (process.env.RESEND_API_KEY) {
@@ -46,8 +48,9 @@ if (process.env.RESEND_API_KEY) {
     console.error('Failed to initialize Resend:', error)
   }
 }
-const dispatcherEmailFrom =
-  process.env.DISPATCHER_EMAIL_FROM ||
+const emailFrom =
+  process.env.EMAIL_FROM ||
+  process.env.APPLICATION_EMAIL_FROM ||
   process.env.RESULT_EMAIL_FROM ||
   'Iman Trucking School <info@imanlogistics.com>'
 
@@ -67,17 +70,21 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && twilioFro
 // admissions address; SMS is skipped entirely (not an error) when unset.
 const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@imantruckingschool.com'
 const adminNotificationPhone = process.env.ADMIN_NOTIFICATION_PHONE || null
+const admissionsEmail = process.env.APPLICATION_EMAIL_TO || adminNotificationEmail
 
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
+const missingDatabaseError = 'The student portal is not configured on the server. Set SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PAYMENT_POLICY_VERSION = 'v2-case-by-case-refunds'
-const DISPATCHER_PAYMENT_POLICY_VERSION = 'v1-dispatcher-nonrefundable-credit'
-const DISPATCHER_PAYMENT_POLICY_TEXT =
-  'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class.'
 
 function normalizePersonName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ))
 }
 
 function paymentPolicyError(body, firstName, lastName) {
@@ -92,33 +99,10 @@ function paymentPolicyError(body, firstName, lastName) {
   return null
 }
 
-function dispatcherPolicyError(body, firstName, lastName) {
-  if (body?.paymentPolicyAccepted !== true) {
-    return 'You must accept the Dispatcher Class non-refundable registration policy before checkout.'
-  }
-  const expected = normalizePersonName(`${firstName || ''} ${lastName || ''}`)
-  const signature = normalizePersonName(body?.paymentPolicySignature)
-  if (body?.paymentPolicySignature && signature && signature !== expected) {
-    return 'Type your full legal name exactly as it appears on this form to sign the payment policy.'
-  }
-  return null
-}
-
 function paymentPolicyRecord(body) {
   return {
     payment_policy_version: PAYMENT_POLICY_VERSION,
     payment_policy_signature: String(body.paymentPolicySignature).trim(),
-    payment_policy_accepted_at: new Date().toISOString(),
-  }
-}
-
-function dispatcherPolicyRecord(body, firstName, lastName) {
-  const sig = body?.paymentPolicySignature
-    ? String(body.paymentPolicySignature).trim()
-    : `${firstName || ''} ${lastName || ''}`.trim()
-  return {
-    payment_policy_version: DISPATCHER_PAYMENT_POLICY_VERSION,
-    payment_policy_signature: sig,
     payment_policy_accepted_at: new Date().toISOString(),
   }
 }
@@ -128,15 +112,6 @@ function stripePolicyCustomText() {
     submit: {
       message:
         'By paying, you confirm you have signed the Iman Trucking School payment policy. Billing and refund questions can be sent to admissions.',
-    },
-  }
-}
-
-function dispatcherStripePolicyCustomText() {
-  return {
-    submit: {
-      message:
-        'All registration payments are non-refundable. If the student cannot attend the class, the payment remains as a credit on their student account and can be used for a future dispatcher class.',
     },
   }
 }
@@ -164,12 +139,6 @@ function requireClients(res) {
   return null
 }
 
-function makeDispatcherRegistrationNo() {
-  const stamp = Date.now().toString(36).toUpperCase()
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase()
-  return `DSP-${new Date().getFullYear()}-${stamp}${suffix}`
-}
-
 async function getSetting(key, fallback) {
   if (!supabase) return fallback
   const { data } = await supabase
@@ -182,6 +151,74 @@ async function getSetting(key, fallback) {
 }
 
 // ---------------------------------------------------------------------------
+// CORS: only the site itself (and local dev servers) may call the API from a
+// browser. The www/non-www variant of each configured URL is allowed too.
+// ---------------------------------------------------------------------------
+
+function allowedOrigins() {
+  const origins = new Set(['http://localhost:5173', 'http://localhost:3000'])
+  for (const value of [process.env.APP_URL, process.env.PUBLIC_SITE_URL]) {
+    if (!value) continue
+    try {
+      const url = new URL(value)
+      origins.add(url.origin)
+      const host = url.hostname.startsWith('www.') ? url.hostname.slice(4) : `www.${url.hostname}`
+      origins.add(`${url.protocol}//${host}${url.port ? `:${url.port}` : ''}`)
+    } catch {
+      console.error(`Ignoring invalid site URL for CORS: ${value}`)
+    }
+  }
+  return origins
+}
+const corsOrigins = allowedOrigins()
+
+// ---------------------------------------------------------------------------
+// Student authentication: every student endpoint requires the caller's
+// Supabase access token (Authorization: Bearer <jwt>), verified server-side.
+// ---------------------------------------------------------------------------
+
+async function requireUser(req, res, next) {
+  const match = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '')
+  if (!match) return res.status(401).json({ error: 'Sign in required.' })
+  if (!supabase) return res.status(503).json({ error: missingDatabaseError })
+
+  try {
+    const { data, error } = await supabase.auth.getUser(match[1])
+    if (error || !data?.user) return res.status(401).json({ error: 'Your session has expired. Sign in again.' })
+    req.user = { id: data.user.id, email: data.user.email || '' }
+    next()
+  } catch (error) {
+    console.error('Failed to verify session:', error)
+    res.status(503).json({ error: 'Could not verify your session. Try again shortly.' })
+  }
+}
+
+// Simple fixed-window limiter for authenticated POSTs: 20 requests per minute
+// per user. In-memory, which is sufficient for the single Node process.
+const RATE_LIMIT = 20
+const RATE_WINDOW_MS = 60 * 1000
+const rateBuckets = new Map()
+
+function rateLimit(req, res, next) {
+  const now = Date.now()
+  const bucket = rateBuckets.get(req.user.id)
+  if (!bucket || now - bucket.start >= RATE_WINDOW_MS) {
+    rateBuckets.set(req.user.id, { start: now, count: 1 })
+    if (rateBuckets.size > 10000) {
+      for (const [key, value] of rateBuckets) if (now - value.start >= RATE_WINDOW_MS) rateBuckets.delete(key)
+    }
+    return next()
+  }
+  bucket.count += 1
+  if (bucket.count > RATE_LIMIT) {
+    return res.status(429).json({ error: 'Too many requests. Wait a minute and try again.' })
+  }
+  next()
+}
+
+const studentOnly = [requireUser, rateLimit]
+
+// ---------------------------------------------------------------------------
 // Middleware. The Stripe webhook must receive the *raw* request body so the
 // signature can be verified, so its raw parser is registered before the global
 // JSON parser. Other routes parse JSON normally.
@@ -189,7 +226,11 @@ async function getSetting(key, fallback) {
 
 const app = express()
 
-app.use(cors())
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, !origin || corsOrigins.has(origin))
+  },
+}))
 
 // Stripe webhook - raw body required for signature verification
 // Registered at both path styles so the dashboard URL (/api/stripe/webhook)
@@ -285,58 +326,11 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
             .from('cdl_payments')
             .update({ status: 'canceled', updated_at: new Date().toISOString() })
             .eq('id', payment.id)
-          await markRelatedRecord(payment, { registration: 'canceled', application: 'canceled', dispatcher: 'canceled' })
+          await markRelatedRecord(payment, { registration: 'canceled', application: 'canceled' })
           payment.status = 'canceled'
         }
       } catch (err) {
         console.warn('Could not reconcile Stripe session during status check:', err?.message)
-      }
-    }
-
-    let registrationDetails = null
-    if (payment.payment_type === 'dispatcher' && payment.dispatcher_registration_id) {
-      const { data: reg } = await supabase
-        .from('cdl_dispatcher_registrations')
-        .select(`
-          id,
-          registration_no,
-          first_name,
-          last_name,
-          email,
-          phone,
-          address_line1,
-          address_line2,
-          city,
-          state,
-          zip_code,
-          status,
-          payment_status,
-          payment_policy_accepted_at,
-          payment_policy_signature,
-          class:cdl_dispatcher_classes(name, starts_at, ends_at)
-        `)
-        .eq('id', payment.dispatcher_registration_id)
-        .maybeSingle()
-
-      if (reg) {
-        registrationDetails = {
-          id: reg.id,
-          registrationNo: reg.registration_no,
-          firstName: reg.first_name,
-          lastName: reg.last_name,
-          email: reg.email,
-          phone: reg.phone,
-          address: `${reg.address_line1}${reg.address_line2 ? `, ${reg.address_line2}` : ''}`,
-          city: reg.city,
-          state: reg.state,
-          zip: reg.zip_code,
-          className: reg.class?.name || payment.metadata?.className || 'Dispatcher Training',
-          status: reg.status,
-          paymentStatus: reg.payment_status,
-          policyAccepted: !!reg.payment_policy_accepted_at,
-          policySignature: reg.payment_policy_signature,
-          policyText: DISPATCHER_PAYMENT_POLICY_TEXT,
-        }
       }
     }
 
@@ -345,7 +339,6 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
       payment_type: payment.payment_type,
       amount_cents: payment.amount_cents,
       currency: payment.currency,
-      registration: registrationDetails,
     })
   } catch (error) {
     console.error('Error fetching payment status:', error)
@@ -353,21 +346,24 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
   }
 })
 
-// Create Stripe Checkout Session for Registration Payment
-app.post('/api/create-registration-checkout', async (req, res) => {
+// Create Stripe Checkout Session for the signed-in student's registration fee
+app.post('/api/create-registration-checkout', studentOnly, async (req, res) => {
   try {
     const unavailable = requireClients(res)
     if (unavailable) return res.status(503).json(unavailable)
 
-    const { studentId, email, firstName, lastName } = req.body
+    // The student is always the caller; a client-supplied id is never trusted.
+    const { data: studentRow } = await supabase
+      .from('cdl_students')
+      .select('id, user_id, first_name, last_name, email')
+      .eq('user_id', req.user.id)
+      .maybeSingle()
 
-    if (!studentId || !email) {
-      return res.status(400).json({ error: 'Missing required fields: studentId, email' })
+    if (!studentRow) {
+      return res.status(404).json({ error: 'Student profile not found' })
     }
-
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Invalid email format' })
-    }
+    const studentId = studentRow.id
+    const email = studentRow.email || req.user.email
 
     // Check if student already has a successful registration payment
     const { data: existingPayment } = await supabase
@@ -413,22 +409,7 @@ app.post('/api/create-registration-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment amount' })
     }
 
-    // Verify the underlying student exists
-    const { data: studentRow } = await supabase
-      .from('cdl_students')
-      .select('id, user_id, first_name, last_name')
-      .eq('id', studentId)
-      .maybeSingle()
-
-    if (!studentRow) {
-      return res.status(404).json({ error: 'Student not found' })
-    }
-
-    const policyError = paymentPolicyError(
-      req.body,
-      studentRow.first_name || firstName,
-      studentRow.last_name || lastName
-    )
+    const policyError = paymentPolicyError(req.body, studentRow.first_name, studentRow.last_name)
     if (policyError) {
       return res.status(400).json({ error: policyError })
     }
@@ -446,8 +427,8 @@ app.post('/api/create-registration-checkout', async (req, res) => {
         payment_type: 'registration',
         customer_email: email,
         metadata: {
-          firstName: firstName || studentRow.first_name || '',
-          lastName: lastName || studentRow.last_name || '',
+          firstName: studentRow.first_name || '',
+          lastName: studentRow.last_name || '',
           studentId,
           expected_amount: registrationFeeCents,
           ...policy,
@@ -480,8 +461,8 @@ app.post('/api/create-registration-checkout', async (req, res) => {
       customer_email: email,
       mode: 'payment',
       custom_text: stripePolicyCustomText(),
-      success_url: checkoutReturnUrl(req, '/cdl-readiness', 'success'),
-      cancel_url: checkoutReturnUrl(req, '/cdl-readiness', 'canceled'),
+      success_url: checkoutReturnUrl(req, '/portal/', 'success'),
+      cancel_url: checkoutReturnUrl(req, '/portal/', 'canceled'),
       metadata: {
         payment_id: payment.id,
         student_id: studentId,
@@ -513,43 +494,52 @@ app.post('/api/create-registration-checkout', async (req, res) => {
   }
 })
 
-// Create Stripe Checkout Session for Application Payment
-app.post('/api/create-application-checkout', async (req, res) => {
+const uuidSchema = z.string().uuid()
+
+// Load an application for the caller. Responds and returns null when it does
+// not exist (404) or belongs to someone else (403).
+async function loadOwnApplication(req, res, id, columns) {
+  if (!uuidSchema.safeParse(id).success) {
+    res.status(400).json({ error: 'Invalid application id.' })
+    return null
+  }
+  const { data: application, error } = await supabase
+    .from('cdl_class_applications')
+    .select(`id, user_id, status, ${columns}`)
+    .eq('id', id)
+    .maybeSingle()
+  if (error) {
+    console.error('Failed to load application:', error)
+    res.status(500).json({ error: 'Could not load the application.' })
+    return null
+  }
+  if (!application) {
+    res.status(404).json({ error: 'Application not found.' })
+    return null
+  }
+  if (application.user_id !== req.user.id) {
+    res.status(403).json({ error: 'This application belongs to another account.' })
+    return null
+  }
+  return application
+}
+
+// Create Stripe Checkout Session for the optional application fee
+app.post('/api/create-application-checkout', studentOnly, async (req, res) => {
   try {
     const unavailable = requireClients(res)
     if (unavailable) return res.status(503).json(unavailable)
 
-    const { applicationId, email, firstName, lastName, courseId } = req.body
-
-    if (!applicationId || !email || !courseId) {
-      return res.status(400).json({ error: 'Missing required fields: applicationId, email, courseId' })
+    const applicationRow = await loadOwnApplication(
+      req, res, req.body?.applicationId,
+      'application_type, reference_no, course_id, email, first_name, last_name'
+    )
+    if (!applicationRow) return
+    if (applicationRow.status === 'DRAFT') {
+      return res.status(409).json({ error: 'Submit your application before paying the application fee.' })
     }
-
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Invalid email format' })
-    }
-
-    // Verify the application exists and belongs to this email
-    const { data: applicationRow } = await supabase
-      .from('cdl_class_applications')
-      .select('id, course_id, email, first_name, last_name')
-      .eq('id', applicationId)
-      .maybeSingle()
-
-    if (!applicationRow) {
-      return res.status(404).json({ error: 'Application not found' })
-    }
-    if (!applicationRow.email || applicationRow.email.toLowerCase() !== email.toLowerCase()) {
-      return res.status(400).json({ error: 'Email does not match the application' })
-    }
-
-    // The fee must come from the course stored on the application, never from
-    // the client-supplied courseId, so the amount cannot be tampered with.
-    // Reject when a courseId is supplied but conflicts with the application.
-    if (courseId && courseId !== applicationRow.course_id) {
-      return res.status(409).json({ error: 'Course does not match the application' })
-    }
-    const feeCourseId = applicationRow.course_id || courseId
+    const applicationId = applicationRow.id
+    const email = applicationRow.email
 
     // Check if the application already has a successful payment
     const { data: existingPayment } = await supabase
@@ -564,11 +554,7 @@ app.post('/api/create-application-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Application already has a successful payment' })
     }
 
-    const policyError = paymentPolicyError(
-      req.body,
-      applicationRow.first_name || firstName,
-      applicationRow.last_name || lastName
-    )
+    const policyError = paymentPolicyError(req.body, applicationRow.first_name, applicationRow.last_name)
     if (policyError) {
       return res.status(400).json({ error: policyError })
     }
@@ -598,17 +584,20 @@ app.post('/api/create-application-checkout', async (req, res) => {
         .eq('id', pendingPayment.id)
     }
 
-    // Fee comes from the course the applicant chose
-    const { data: course } = await supabase
-      .from('cdl_courses')
-      .select('application_fee_cents, name')
-      .eq('id', feeCourseId)
-      .maybeSingle()
+    // The fee always comes from the course stored on the application.
+    const { data: course } = applicationRow.course_id
+      ? await supabase
+          .from('cdl_courses')
+          .select('application_fee_cents, name')
+          .eq('id', applicationRow.course_id)
+          .maybeSingle()
+      : { data: null }
 
     const applicationFeeCents = Number(course?.application_fee_cents) > 0
       ? Number(course.application_fee_cents)
       : 2500
-    const courseName = course?.name || 'CDL Training Course'
+    const courseName = course?.name
+      || (applicationRow.application_type === 'ASSESSMENT' ? 'CDL Assessment' : 'CDL Training Course')
 
     // Validate payment amount
     if (!Number.isInteger(applicationFeeCents) || applicationFeeCents < 0 || applicationFeeCents > 1000000) {
@@ -626,10 +615,11 @@ app.post('/api/create-application-checkout', async (req, res) => {
         payment_type: 'application',
         customer_email: email,
         metadata: {
-          firstName: firstName || applicationRow.first_name || '',
-          lastName: lastName || applicationRow.last_name || '',
+          firstName: applicationRow.first_name || '',
+          lastName: applicationRow.last_name || '',
           applicationId,
-          courseId: feeCourseId,
+          referenceNo: applicationRow.reference_no,
+          courseId: applicationRow.course_id,
           courseName,
           expected_amount: applicationFeeCents,
           ...policy,
@@ -643,7 +633,7 @@ app.post('/api/create-application-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create payment record' })
     }
 
-    // Create Stripe Checkout Session
+    const returnPath = `/portal/applications/${applicationId}`
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -652,7 +642,7 @@ app.post('/api/create-application-checkout', async (req, res) => {
             currency: 'usd',
             product_data: {
               name: `Application Fee - ${courseName}`,
-              description: 'Application fee for Iman Trucking School',
+              description: `Application ${applicationRow.reference_no} - Iman Trucking School`,
             },
             unit_amount: applicationFeeCents,
           },
@@ -662,8 +652,8 @@ app.post('/api/create-application-checkout', async (req, res) => {
       customer_email: email,
       mode: 'payment',
       custom_text: stripePolicyCustomText(),
-      success_url: checkoutReturnUrl(req, '/class-application', 'success'),
-      cancel_url: checkoutReturnUrl(req, '/class-application', 'canceled'),
+      success_url: checkoutReturnUrl(req, returnPath, 'success'),
+      cancel_url: checkoutReturnUrl(req, returnPath, 'canceled'),
       metadata: {
         payment_id: payment.id,
         application_id: applicationId,
@@ -696,321 +686,218 @@ app.post('/api/create-application-checkout', async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
-// Create a dispatcher registration server-side. Anonymous browser inserts
-// cannot safely SELECT the inserted row under RLS, so the payment flow must use
-// the service-role API and return the canonical database id.
+// Online ELP test for a CDL Assessment application. The score is always
+// computed here from the raw answers, so a client cannot submit its own score.
 // ---------------------------------------------------------------------------
-app.post('/api/create-dispatcher-registration', async (req, res) => {
+
+const elpSubmissionSchema = z.object({
+  applicationId: z.string().uuid(),
+  responses: z.unknown().refine(validateResponsesShape, 'Invalid answers.'),
+  startedAt: z.string().datetime().optional(),
+})
+
+function testDuration(startedAt) {
+  const started = startedAt ? new Date(startedAt).getTime() : NaN
+  const minutes = Math.round((Date.now() - started) / 60000)
+  return Number.isFinite(minutes) && minutes >= 0 && minutes <= 24 * 60
+    ? `${Math.max(1, minutes)} minutes`
+    : 'Not recorded'
+}
+
+app.post('/api/elp-submissions', studentOnly, async (req, res) => {
   try {
-    if (!supabase) return res.status(503).json({ error: missingServiceError })
-
-    const { firstName, lastName, email, phone, address1, address2, city, state, zip, classId } = req.body
-    if (!firstName || !lastName || !email || !address1 || !city || !state || !zip || !classId) {
-      return res.status(400).json({ error: 'Complete every required registration field.' })
+    const parsed = elpSubmissionSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'The test answers are incomplete or invalid.' })
     }
-    if (!emailRegex.test(email)) return res.status(400).json({ error: 'Invalid email format' })
+    const { applicationId, responses, startedAt } = parsed.data
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classId)
-
-    let dispatcherClass = null
-    if (isUuid) {
-      const { data: foundClass, error: classError } = await supabase
-        .from('cdl_dispatcher_classes')
-        .select('id, name, price_cents')
-        .eq('id', classId)
-        .eq('open', true)
-        .maybeSingle()
-
-      if (!classError && foundClass) {
-        dispatcherClass = foundClass
-      }
+    const application = await loadOwnApplication(
+      req, res, applicationId,
+      'application_type, first_name, last_name, email, phone, form_data'
+    )
+    if (!application) return
+    if (application.application_type !== 'ASSESSMENT') {
+      return res.status(409).json({ error: 'The online test belongs to a CDL Assessment application.' })
+    }
+    if (!['DRAFT', 'INFO_REQUIRED'].includes(application.status)) {
+      return res.status(409).json({ error: 'This application can no longer be changed.' })
     }
 
-    // Fallback: If not a valid UUID (e.g. demo-dispatcher-class-1) or not found, resolve to the current active open dispatcher class
-    if (!dispatcherClass) {
-      const { data: fallbackClass, error: fallbackError } = await supabase
-        .from('cdl_dispatcher_classes')
-        .select('id, name, price_cents')
-        .eq('open', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+    const profile = application.form_data?.profile || {}
+    const license = application.form_data?.license || {}
+    const now = new Date()
+    const applicant = {
+      fullName: `${application.first_name} ${application.last_name}`.trim(),
+      address: [profile.addressLine1, profile.addressLine2].filter(Boolean).join(', '),
+      cityStateZip: [profile.city, [profile.state, profile.zipCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+      phone: application.phone || '',
+      email: application.email,
+      licenseNumber: license.licenseNumber || '',
+      licenseState: license.licenseState || '',
+      program: 'CDL Assessment',
+      evaluatorName: 'Automated scoring system',
+      evaluatorTitle: 'Preliminary evaluator',
+      assessmentDate: now.toISOString().slice(0, 10),
+      assessmentTime: now.toISOString().slice(11, 16),
+    }
+    const evaluation = automaticallyEvaluate(responses, applicant.evaluatorName, applicant.evaluatorTitle)
+    const id = `ELP-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 
-      if (fallbackError) throw fallbackError
-      dispatcherClass = fallbackClass
+    const { error: insertError } = await supabase.from('elp_submissions').insert({
+      id,
+      student_id: req.user.id,
+      applicant,
+      responses,
+      evaluation,
+      status: 'EVALUATED',
+      submitted_at: now.toISOString(),
+      duration: testDuration(startedAt),
+    })
+    if (insertError) {
+      console.error('Failed to save ELP submission:', insertError)
+      return res.status(500).json({ error: 'Your test could not be saved. Try again.' })
     }
 
-    if (!dispatcherClass) {
-      return res.status(404).json({ error: 'The selected dispatcher class is not available.' })
+    const { data: linked, error: linkError } = await supabase
+      .from('cdl_class_applications')
+      .update({ elp_submission_id: id })
+      .eq('id', application.id)
+      .eq('user_id', req.user.id)
+      .in('status', ['DRAFT', 'INFO_REQUIRED'])
+      .select('id')
+    if (linkError || !linked?.length) {
+      console.error('Failed to link ELP submission:', linkError)
+      return res.status(409).json({ error: 'This application can no longer be changed.' })
     }
 
-    const resolvedClassId = dispatcherClass.id
-
-    const { data, error } = await supabase
-      .from('cdl_dispatcher_registrations')
-      .insert({
-        registration_no: makeDispatcherRegistrationNo(),
-        first_name: String(firstName).trim(),
-        last_name: String(lastName).trim(),
-        email: String(email).trim().toLowerCase(),
-        phone: phone ? String(phone).trim() : null,
-        address_line1: String(address1).trim(),
-        address_line2: address2 ? String(address2).trim() : null,
-        city: String(city).trim(),
-        state: String(state).trim(),
-        zip_code: String(zip).trim(),
-        class_id: resolvedClassId,
-        status: 'SUBMITTED',
-        payment_status: 'pending',
-      })
-      .select('id, registration_no, class_id')
-      .single()
-
-    if (error) throw error
-    res.status(201).json(data)
+    res.status(201).json({ id, evaluation })
   } catch (error) {
-    console.error('Error creating dispatcher registration:', error)
-    res.status(500).json({ error: 'Unable to save registration. Please try again.' })
+    console.error('Error saving ELP submission:', error)
+    res.status(500).json({ error: 'Your test could not be saved. Try again.' })
   }
 })
 
-// Create Stripe Checkout Session for Dispatcher Class Registration
-app.post('/api/create-dispatcher-checkout', async (req, res) => {
+// ---------------------------------------------------------------------------
+// Admissions notification after a student submits. Best-effort and sent at
+// most once per submission.
+// ---------------------------------------------------------------------------
+
+const notifiedSubmissions = new Set()
+
+function admissionsEmailHtml(application) {
+  const profile = application.form_data?.profile || {}
+  const license = application.form_data?.license || {}
+  const type = application.application_type === 'ASSESSMENT' ? 'CDL Assessment' : 'CDL Training'
+  const rows = [
+    ['Reference', application.reference_no],
+    ['Type', type],
+    ['Name', `${application.first_name} ${application.last_name}`],
+    ['Email', application.email],
+    ['Phone', application.phone],
+    ['Address', [profile.addressLine1, profile.addressLine2, profile.city, profile.state, profile.zipCode].filter(Boolean).join(', ')],
+    ['License', [license.licenseType, license.licenseNumber, license.licenseState].filter(Boolean).join(' / ')],
+    ['Program', application.course?.name],
+    ['Start session', application.session?.name],
+    ['Preferred dates', application.preferred_dates],
+    ['Statement', application.statement],
+  ].filter(([, value]) => value)
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+      <h2 style="color: #08085f;">New ${type} application</h2>
+      <table style="border-collapse: collapse; width: 100%;">
+        ${rows.map(([label, value]) => `
+          <tr>
+            <td style="padding: 6px 12px 6px 0; font-weight: bold; vertical-align: top;">${escapeHtml(label)}</td>
+            <td style="padding: 6px 0;">${escapeHtml(value)}</td>
+          </tr>`).join('')}
+      </table>
+      <p>Review it in the admin dashboard under Applications.</p>
+    </div>
+  `
+}
+
+app.post('/api/applications/:id/notify', studentOnly, async (req, res) => {
   try {
-    const unavailable = requireClients(res)
-    if (unavailable) return res.status(503).json(unavailable)
-
-    const { registrationId, email, firstName, lastName, classId } = req.body
-
-    if (!registrationId || !email || !classId) {
-      return res.status(400).json({ error: 'Missing required fields: registrationId, email, classId' })
-    }
-
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Invalid email format' })
-    }
-    // Verify the registration exists and belongs to this email
-    const { data: registrationRow } = await supabase
-      .from('cdl_dispatcher_registrations')
-      .select('id, class_id, email, registration_no, first_name, last_name, payment_status')
-      .eq('id', registrationId)
-      .maybeSingle()
-
-    if (!registrationRow) {
-      return res.status(404).json({ error: 'Registration not found' })
-    }
-    if (!registrationRow.email || registrationRow.email.toLowerCase() !== email.toLowerCase()) {
-      return res.status(400).json({ error: 'Email does not match the registration' })
-    }
-
-    if (registrationRow.payment_status === 'paid') {
-      return res.status(400).json({ error: 'This registration has already been paid and confirmed.' })
-    }
-
-    // The price must come from the class stored on the registration, never from
-    // the client-supplied classId, so the amount cannot be tampered with.
-    if (classId && classId !== registrationRow.class_id) {
-      return res.status(409).json({ error: 'Class does not match the registration' })
-    }
-
-    const policyError = dispatcherPolicyError(
-      req.body,
-      registrationRow.first_name || firstName,
-      registrationRow.last_name || lastName
+    const application = await loadOwnApplication(
+      req, res, req.params.id,
+      'application_type, reference_no, first_name, last_name, email, phone, statement, preferred_dates, form_data, submitted_at, course:cdl_courses(name), session:cdl_academic_sessions(name)'
     )
-    if (policyError) {
-      return res.status(400).json({ error: policyError })
+    if (!application) return
+    if (application.status !== 'SUBMITTED') {
+      return res.status(409).json({ error: 'Only submitted applications are sent to admissions.' })
     }
 
-    const policy = dispatcherPolicyRecord(
-      req.body,
-      registrationRow.first_name || firstName,
-      registrationRow.last_name || lastName
-    )
-    const feeClassId = registrationRow.class_id || classId
+    const key = `${application.id}:${application.submitted_at}`
+    if (!resend || notifiedSubmissions.has(key)) return res.json({ sent: false })
+    notifiedSubmissions.add(key)
 
-    // Check if the registration already has a successful payment
-    const { data: existingPayment } = await supabase
-      .from('cdl_payments')
-      .select('id')
-      .eq('dispatcher_registration_id', registrationId)
-      .eq('payment_type', 'dispatcher')
-      .eq('status', 'succeeded')
-      .maybeSingle()
-
-    if (existingPayment) {
-      return res.status(400).json({ error: 'Registration already has a successful payment' })
-    }
-
-    // Check for pending/processing payments to prevent duplicates without locking out user
-    const { data: pendingPayment, error: pendingError } = await supabase
-      .from('cdl_payments')
-      .select('id, status, created_at, stripe_checkout_session_id')
-      .eq('dispatcher_registration_id', registrationId)
-      .eq('payment_type', 'dispatcher')
-      .in('status', ['pending', 'processing'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (!pendingError && pendingPayment) {
-      // If previous Stripe session is still open, expire it so user cannot be double-charged
-      if (stripe && pendingPayment.stripe_checkout_session_id) {
-        try {
-          await stripe.checkout.sessions.expire(pendingPayment.stripe_checkout_session_id)
-        } catch (e) {
-          // Ignore if already completed/expired
-        }
-      }
-      // Cancel stale pending payment record so a fresh session can be created
-      await supabase
-        .from('cdl_payments')
-        .update({ status: 'canceled', updated_at: new Date().toISOString() })
-        .eq('id', pendingPayment.id)
-    }
-
-    // Fee, status, deadline, and seat capacity all come from the dispatcher
-    // class the registrant chose, never from the client, so none of these
-    // can be tampered with or bypassed.
-    let dispatcherClass = null
-    const isFeeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(feeClassId)
-    if (isFeeUuid) {
-      const { data } = await supabase
-        .from('cdl_dispatcher_classes')
-        .select('price_cents, name, status, registration_deadline, seat_capacity')
-        .eq('id', feeClassId)
-        .maybeSingle()
-      dispatcherClass = data
-    }
-
-    // A class explicitly marked FULL/CLOSED/COMPLETED cannot be paid for.
-    // A class with no status set (pre-migration rows) is treated as open,
-    // matching the migration's backfill of status = 'OPEN' for open = true.
-    if (dispatcherClass?.status && dispatcherClass.status !== 'OPEN') {
-      return res.status(409).json({ error: 'This class session is no longer accepting registrations.' })
-    }
-
-    if (dispatcherClass?.registration_deadline && new Date(dispatcherClass.registration_deadline) < new Date()) {
-      return res.status(409).json({ error: 'The registration deadline for this class has passed.' })
-    }
-
-    // Enforce seat capacity at the moment of payment, not just at browse
-    // time. seat_capacity is nullable (null = unlimited), so only enforce
-    // when a real capacity is set. This also catches the edge case where
-    // a class was closed/filled after the registrant started but before
-    // they paid.
-    if (dispatcherClass?.seat_capacity != null) {
-      const { count: seatsTaken } = await supabase
-        .from('cdl_dispatcher_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('class_id', feeClassId)
-        .eq('payment_status', 'paid')
-        .neq('status', 'CANCELED')
-
-      if ((seatsTaken || 0) >= dispatcherClass.seat_capacity) {
-        return res.status(409).json({ error: 'This class is full.' })
-      }
-    }
-
-    // Price comes from the class's own price_cents; the $520 fallback only
-    // applies when the class row itself could not be found (defensive, not
-    // an override of a real price).
-    const dispatcherFeeCents = dispatcherClass?.price_cents ?? 52000
-    const className = dispatcherClass?.name || 'Dispatcher Training'
-
-    // Validate payment amount
-    if (!Number.isInteger(dispatcherFeeCents) || dispatcherFeeCents < 0 || dispatcherFeeCents > 1000000) {
-      return res.status(400).json({ error: 'Invalid payment amount' })
-    }
-
-    // Create pending payment record
-    const { data: payment, error: paymentError } = await supabase
-      .from('cdl_payments')
-      .insert({
-        dispatcher_registration_id: registrationId,
-        amount_cents: dispatcherFeeCents,
-        currency: 'usd',
-        status: 'pending',
-        payment_type: 'dispatcher',
-        customer_email: email,
-        metadata: {
-          firstName: firstName || registrationRow.first_name || '',
-          lastName: lastName || registrationRow.last_name || '',
-          registrationId,
-          registration_no: registrationRow.registration_no,
-          classId: feeClassId,
-          className,
-          expected_amount: dispatcherFeeCents,
-          policy_text: DISPATCHER_PAYMENT_POLICY_TEXT,
-          ...policy,
-        },
+    try {
+      await resend.emails.send({
+        from: emailFrom,
+        to: admissionsEmail,
+        replyTo: application.email,
+        subject: `New application ${application.reference_no} - ${application.first_name} ${application.last_name}`,
+        html: admissionsEmailHtml(application),
       })
-      .select()
-      .single()
-
-    if (paymentError) {
-      console.error('Error creating payment record:', paymentError)
-      return res.status(500).json({ error: 'Failed to create payment record' })
+      res.json({ sent: true })
+    } catch (error) {
+      notifiedSubmissions.delete(key)
+      console.error('Failed to send admissions email:', error)
+      res.json({ sent: false })
     }
-
-    // Create Stripe Checkout Session
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      client_reference_id: registrationRow.registration_no,
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: `Dispatcher Class Registration - ${className}`,
-              description: `Registration ${registrationRow.registration_no} for Dispatcher Class at Iman Trucking School`,
-            },
-            unit_amount: dispatcherFeeCents,
-          },
-          quantity: 1,
-        },
-      ],
-      customer_email: email,
-      mode: 'payment',
-      custom_text: dispatcherStripePolicyCustomText(),
-      success_url: checkoutReturnUrl(req, '/dispatcher-registration', 'success'),
-      cancel_url: checkoutReturnUrl(req, '/dispatcher-registration', 'canceled'),
-      metadata: {
-        payment_id: payment.id,
-        dispatcher_registration_id: registrationId,
-        registration_no: registrationRow.registration_no,
-        payment_type: 'dispatcher',
-        expected_amount: dispatcherFeeCents.toString(),
-        app_email: email,
-        payment_policy_version: DISPATCHER_PAYMENT_POLICY_VERSION,
-      },
-    })
-
-    // Immediately link payment_id and pending status to the registration row
-    await supabase
-      .from('cdl_dispatcher_registrations')
-      .update({
-        ...policy,
-        payment_id: payment.id,
-        payment_status: 'pending',
-        refund_policy_accepted_at: policy.payment_policy_accepted_at,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', registrationId)
-
-    // Update payment with Stripe session ID
-    await supabase
-      .from('cdl_payments')
-      .update({
-        stripe_checkout_session_id: session.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', payment.id)
-
-    res.json({ sessionId: session.id, url: session.url })
   } catch (error) {
-    console.error('Error creating dispatcher checkout session:', error)
-    res.status(500).json({ error: 'Failed to create checkout session' })
+    console.error('Error notifying admissions:', error)
+    res.status(500).json({ error: 'Could not notify admissions.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Instructor accounts are created server-side by a super admin. The role is
+// set in app_metadata, which only the service role can write; the database
+// ignores roles in user-editable metadata.
+// ---------------------------------------------------------------------------
+
+const instructorSchema = z.object({
+  firstName: z.string().trim().min(1, 'First name is required.').max(100),
+  lastName: z.string().trim().min(1, 'Last name is required.').max(100),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(254),
+  password: z.string().min(10, 'Password must be at least 10 characters.').max(72),
+})
+
+app.post('/api/admin/instructors', requireUser, rateLimit, async (req, res) => {
+  try {
+    const { data: caller } = await supabase
+      .from('profiles')
+      .select('role, active')
+      .eq('id', req.user.id)
+      .maybeSingle()
+    if (!caller?.active || caller.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only super administrators can create instructor accounts.' })
+    }
+
+    const parsed = instructorSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid instructor details.' })
+    }
+    const { firstName, lastName, email, password } = parsed.data
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { first_name: firstName, last_name: lastName, full_name: `${firstName} ${lastName}` },
+      app_metadata: { role: 'instructor' },
+    })
+    if (error) {
+      if (/already/i.test(error.message)) return res.status(409).json({ error: 'An account with this email already exists.' })
+      console.error('Failed to create instructor:', error)
+      return res.status(500).json({ error: 'The instructor account could not be created.' })
+    }
+    res.status(201).json({ id: data.user.id })
+  } catch (error) {
+    console.error('Error creating instructor:', error)
+    res.status(500).json({ error: 'The instructor account could not be created.' })
   }
 })
 
@@ -1055,19 +942,6 @@ async function markRelatedRecord(payment, statusFieldMap) {
       .from('cdl_class_applications')
       .update({ payment_status: statusFieldMap.application })
       .eq('id', payment.application_id)
-  } else if (payment.payment_type === 'dispatcher' && payment.dispatcher_registration_id) {
-    const update = {
-      payment_status: statusFieldMap.dispatcher,
-      payment_id: payment.id,
-      updated_at: new Date().toISOString(),
-    }
-    if (statusFieldMap.dispatcher === 'paid') {
-      update.status = 'CONFIRMED'
-    }
-    await supabase
-      .from('cdl_dispatcher_registrations')
-      .update(update)
-      .eq('id', payment.dispatcher_registration_id)
   }
 }
 
@@ -1142,11 +1016,6 @@ async function handleCheckoutSessionCompleted(session) {
       .from('cdl_class_applications')
       .update({ payment_status: 'processing', payment_id })
       .eq('id', session.metadata.application_id)
-  } else if (payment_type === 'dispatcher' && session.metadata?.dispatcher_registration_id) {
-    await supabase
-      .from('cdl_dispatcher_registrations')
-      .update({ payment_status: 'processing', payment_id, updated_at: new Date().toISOString() })
-      .eq('id', session.metadata.dispatcher_registration_id)
   }
 
   // For immediate payment methods, Checkout already confirms that the Session
@@ -1186,7 +1055,7 @@ async function handleCheckoutSessionAsyncPaymentFailed(session) {
     })
     .eq('id', payment.id)
 
-  await markRelatedRecord(payment, { registration: 'failed', application: 'failed', dispatcher: 'failed' })
+  await markRelatedRecord(payment, { registration: 'failed', application: 'failed' })
 }
 
 async function handleCheckoutSessionExpired(session) {
@@ -1206,7 +1075,7 @@ async function handleCheckoutSessionExpired(session) {
     .update({ status: 'canceled', updated_at: new Date().toISOString() })
     .eq('id', payment_id)
 
-  await markRelatedRecord(existing, { registration: 'canceled', application: 'canceled', dispatcher: 'canceled' })
+  await markRelatedRecord(existing, { registration: 'canceled', application: 'canceled' })
 }
 
 async function handlePaymentIntentSucceeded(paymentIntent) {
@@ -1239,7 +1108,7 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', payment.id)
-    await markRelatedRecord(payment, { registration: 'failed', application: 'failed', dispatcher: 'failed' })
+    await markRelatedRecord(payment, { registration: 'failed', application: 'failed' })
     return
   }
 
@@ -1267,7 +1136,7 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
 
   const finalizedPayment = { ...payment, ...updated }
 
-  await markRelatedRecord(finalizedPayment, { registration: 'paid', application: 'paid', dispatcher: 'paid' })
+  await markRelatedRecord(finalizedPayment, { registration: 'paid', application: 'paid' })
   await sendPaymentNotifications(finalizedPayment)
 }
 
@@ -1285,11 +1154,9 @@ function buildNotificationContext(payment) {
   const name = `${firstName} ${lastName}`.trim() || 'Customer'
   const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
   const program =
-    payment.payment_type === 'dispatcher'
-      ? md.className || 'Dispatcher Training'
-      : payment.payment_type === 'application'
-        ? md.courseName || 'CDL Training Course'
-        : 'CDL Student Registration'
+    payment.payment_type === 'application'
+      ? md.courseName || 'CDL Training Course'
+      : 'CDL Student Registration'
   const transactionId = payment.stripe_payment_intent_id || payment.stripe_checkout_session_id || payment.id
   const date = new Date(payment.succeeded_at || Date.now()).toLocaleString('en-US', {
     dateStyle: 'long',
@@ -1300,7 +1167,7 @@ function buildNotificationContext(payment) {
     name,
     amount,
     program,
-    registrationNo: md.registration_no || null,
+    referenceNo: md.referenceNo || null,
     transactionId,
     date,
     status: 'Paid',
@@ -1308,7 +1175,7 @@ function buildNotificationContext(payment) {
 }
 
 // Payment rows only carry a phone number indirectly, via the linked
-// student/application/dispatcher-registration row, so SMS looks it up
+// student/application row, so SMS looks it up
 // on demand rather than storing a copy on cdl_payments.
 async function getRecipientPhone(payment) {
   try {
@@ -1324,21 +1191,14 @@ async function getRecipientPhone(payment) {
         .maybeSingle()
       return data?.phone || null
     }
-    if (payment.payment_type === 'dispatcher' && payment.dispatcher_registration_id) {
-      const { data } = await supabase
-        .from('cdl_dispatcher_registrations')
-        .select('phone')
-        .eq('id', payment.dispatcher_registration_id)
-        .maybeSingle()
-      return data?.phone || null
-    }
   } catch (error) {
     console.error('Failed to look up recipient phone for SMS:', error)
   }
   return null
 }
 
-function paymentNotificationEmailHtml(ctx, { forAdmin }) {
+function paymentNotificationEmailHtml(rawCtx, { forAdmin }) {
+  const ctx = Object.fromEntries(Object.entries(rawCtx).map(([key, value]) => [key, value == null ? value : escapeHtml(value)]))
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #08085f;">${forAdmin ? 'New Payment Received' : 'Payment Confirmation'}</h2>
@@ -1354,7 +1214,7 @@ function paymentNotificationEmailHtml(ctx, { forAdmin }) {
         <p style="margin: 8px 0 0 0;"><strong>Payment Status:</strong> ${ctx.status}</p>
         <p style="margin: 8px 0 0 0;"><strong>Transaction ID:</strong> ${ctx.transactionId}</p>
         <p style="margin: 8px 0 0 0;"><strong>Date:</strong> ${ctx.date}</p>
-        ${ctx.registrationNo ? `<p style="margin: 8px 0 0 0;"><strong>Registration Number:</strong> ${ctx.registrationNo}</p>` : ''}
+        ${ctx.referenceNo ? `<p style="margin: 8px 0 0 0;"><strong>Application Reference:</strong> ${ctx.referenceNo}</p>` : ''}
       </div>
       <p>Best regards,<br>Iman Trucking School</p>
     </div>
@@ -1373,9 +1233,9 @@ async function sendPaymentNotifications(payment) {
   if (resend && payment.customer_email) {
     try {
       await resend.emails.send({
-        from: dispatcherEmailFrom,
+        from: emailFrom,
         to: payment.customer_email,
-        subject: `Payment Confirmed${ctx.registrationNo ? ` - ${ctx.registrationNo}` : ''}`,
+        subject: `Payment Confirmed${ctx.referenceNo ? ` - ${ctx.referenceNo}` : ''}`,
         html: paymentNotificationEmailHtml(ctx, { forAdmin: false }),
       })
     } catch (error) {
@@ -1386,7 +1246,7 @@ async function sendPaymentNotifications(payment) {
   if (resend) {
     try {
       await resend.emails.send({
-        from: dispatcherEmailFrom,
+        from: emailFrom,
         to: adminNotificationEmail,
         subject: `New payment received - ${ctx.program}`,
         html: paymentNotificationEmailHtml(ctx, { forAdmin: true }),
@@ -1439,7 +1299,7 @@ async function handlePaymentIntentFailed(paymentIntent) {
     })
     .eq('id', payment.id)
 
-  await markRelatedRecord(payment, { registration: 'failed', application: 'failed', dispatcher: 'failed' })
+  await markRelatedRecord(payment, { registration: 'failed', application: 'failed' })
 }
 
 async function handleChargeRefunded(charge) {
@@ -1455,7 +1315,7 @@ async function handleChargeRefunded(charge) {
     })
     .eq('id', payment.id)
 
-  await markRelatedRecord(payment, { registration: 'refunded', application: 'refunded', dispatcher: 'refunded' })
+  await markRelatedRecord(payment, { registration: 'refunded', application: 'refunded' })
 }
 
 // ---------------------------------------------------------------------------

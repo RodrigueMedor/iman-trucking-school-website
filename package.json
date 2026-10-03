@@ -9,7 +9,8 @@
     "postinstall": "npm run build",
     "preview": "vite preview",
     "start": "node server.js",
-    "start:api": "node server-express.js"
+    "start:api": "node server-express.js",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -44,6 +45,7 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.4",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
   }
 }

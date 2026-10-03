@@ -2,6 +2,7 @@ export const programLinks = [
   ['Our Program', '/our-program/'],
   ['Class A CDL', '/class-a-cdl/'],
   ['CDL Training', '/cdl-training/'],
+  ['Tuition & Financing', '/tuition-financing/'],
   ['Orlando CDL Program', '/cdl-training-program-orlando-florida/'],
   ['Truck Driving School', '/truck-driving-school/'],
 ] as const
@@ -42,8 +43,6 @@ export const pageTitles: Record<string, string> = {
   '/kreyol/': 'Iman Trucking School — Kreyòl',
   '/privacy-policy/': 'Privacy Policy',
   '/terms-of-use-page/': 'Terms of Use',
-  '/cdl-readiness/': 'CDL Readiness Assessment',
-  '/cdl-readiness-results/': 'CDL Readiness Results',
-  '/class-application/': 'Class Application',
-  '/dispatcher-registration/': 'Dispatcher Class Registration',
+  '/cdl-assessment/': 'CDL Assessment',
+  '/tuition-financing/': 'Tuition & Financing',
 }

@@ -6,6 +6,7 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { useContent } from '../contexts/ContentContext'
+import { FinancingCallout } from './financing/FinancingCallout'
 
 const trainingVideos = [
   {
@@ -92,7 +93,8 @@ export function HomeHero() {
         }}
       />
       <Container sx={{ position: 'relative', py: { xs: 9, md: 12 } }}>
-        <Box maxWidth={700}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={{ xs: 5, lg: 6 }} alignItems={{ lg: 'center' }}>
+        <Box sx={{ maxWidth: 700, flex: '1 1 58%', minWidth: 0 }}>
           <Typography component="p" sx={{ display: 'inline-flex', px: 1.5, py: .75, mb: 2.5, border: '1px solid rgba(255,255,255,.28)', borderRadius: 20, bgcolor: 'rgba(255,255,255,.08)', backdropFilter: 'blur(8px)', fontSize: '.78rem', fontWeight: 900, letterSpacing: '.11em', textTransform: 'uppercase' }}>
             {hero.section_label}
           </Typography>
@@ -119,6 +121,10 @@ export function HomeHero() {
             ))}
           </Stack>
         </Box>
+        <Box sx={{ width: { xs: '100%', lg: 410 }, flex: { lg: '0 0 410px' } }}>
+          <FinancingCallout variant="hero" title="Need Help Paying for CDL Training?" />
+        </Box>
+        </Stack>
         <Stack
           className="notranslate"
           translate="no"

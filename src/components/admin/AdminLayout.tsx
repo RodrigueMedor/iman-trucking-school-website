@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { AppBar, Avatar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
-import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
-import EventNoteRoundedIcon from '@mui/icons-material/EventNoteRounded'
+import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded'
+import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
@@ -14,8 +14,8 @@ const width = 276
 const links = [
   ['Dashboard', '/admin/', <DashboardRoundedIcon />],
   ['All page content', '/admin/content/', <ArticleRoundedIcon />],
-  ['Dispatcher Registrations', '/admin/dispatcher-registrations/', <BadgeRoundedIcon />],
-  ['Dispatcher Class Sessions', '/admin/dispatcher-classes/', <EventNoteRoundedIcon />],
+  ['Applications', '/admin/cdl-applications/', <AssignmentRoundedIcon />],
+  ['Financing referrals', '/admin/financing-referrals/', <AccountBalanceRoundedIcon />],
 ] as const
 
 export function AdminLayout() {
