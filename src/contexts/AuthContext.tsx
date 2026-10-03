@@ -3,13 +3,20 @@ import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
 type LocalRole = 'super_admin' | 'instructor' | 'student'
-type Profile = { id: string; full_name: string; role: LocalRole | 'employee'; active: boolean }
+type Profile = { id: string; full_name: string; role: LocalRole | 'admin' | 'employee'; active: boolean }
+export type SignUpInput = { firstName: string; lastName: string; email: string; password: string; redirectTo: string }
 type AuthValue = {
   configured: boolean
   loading: boolean
+  /** True once the profile for the current session has been fetched (it may still be null). */
+  profileReady: boolean
   session: Session | null
   profile: Profile | null
   signIn: (email: string, password: string) => Promise<string | null>
+  signUp: (input: SignUpInput) => Promise<{ error?: string; needsConfirmation?: boolean }>
+  resetPassword: (email: string, redirectTo: string) => Promise<string | null>
+  updatePassword: (password: string) => Promise<string | null>
+  refreshProfile: () => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -47,16 +54,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(initialLocalAuth?.session ?? null)
   const [profile, setProfile] = useState<Profile | null>(initialLocalAuth?.profile ?? null)
   const [loading, setLoading] = useState(true)
+  // Which user id the current `profile` state was loaded for.
+  const [profileFor, setProfileFor] = useState<string | null>(initialLocalAuth?.session.user.id ?? null)
 
   const loadProfile = async (userId?: string) => {
-    if (!supabase || !userId) return setProfile(null)
-    try {
-      const { data } = await supabase.from('profiles').select('id, full_name, role, active').eq('id', userId).maybeSingle()
-      setProfile((data as Profile | null) ?? null)
-    } catch (e) {
-      // Profiles table doesn't exist yet, set profile to null
+    if (!supabase || !userId) {
       setProfile(null)
+      setProfileFor(null)
+      return
     }
+    const { data, error } = await supabase.from('profiles').select('id, full_name, role, active').eq('id', userId).maybeSingle()
+    if (error) console.error('Failed to load profile:', error)
+    setProfile((data as Profile | null) ?? null)
+    setProfileFor(userId)
   }
 
   useEffect(() => {
@@ -69,7 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next)
-      void loadProfile(next?.user.id)
+      // Supabase must not be awaited inside this callback; defer the query.
+      window.setTimeout(() => void loadProfile(next?.user.id), 0)
       setLoading(false)
     })
     return () => data.subscription.unsubscribe()
@@ -95,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthValue>(() => ({
     configured: isSupabaseConfigured || localAccounts.length > 0,
     loading,
+    profileReady: !loading && (!session || profileFor === session.user.id),
     session,
     profile,
     signIn: async (email, password) => {
@@ -108,77 +120,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (!supabase) return 'Authentication has not been configured for this deployment.'
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) return error.message
-      try {
-        const { data: accountProfile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, full_name, role, active')
-          .eq('id', data.user.id)
-          .maybeSingle()
-        
-        // If profile doesn't exist, try to create it from user metadata
-        if (profileError || !accountProfile) {
-          const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User'
-          const role = data.user.user_metadata?.role || 'student'
-          
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: data.user.id,
-              full_name: fullName,
-              role: role,
-              active: true,
-            })
-          
-          if (insertError) {
-            await supabase.auth.signOut()
-            setSession(null)
-            setProfile(null)
-            return 'Your password is correct, but your account profile could not be created. Please contact support.'
-          }
-          
-          // Fetch the newly created profile
-          const { data: newProfile } = await supabase
-            .from('profiles')
-            .select('id, full_name, role, active')
-            .eq('id', data.user.id)
-            .single()
-          
-          if (!newProfile?.active) {
-            await supabase.auth.signOut()
-            setSession(null)
-            setProfile(null)
-            return 'This account is inactive.'
-          }
-          
-          setSession(data.session)
-          setProfile(newProfile as Profile)
-          return null
-        }
-        
-        if (!accountProfile.active) {
-          await supabase.auth.signOut()
-          setSession(null)
-          setProfile(null)
-          return 'This account is inactive.'
-        }
-        setSession(data.session)
-        setProfile(accountProfile as Profile)
-        return null
-      } catch (e) {
-        // Profiles table doesn't exist yet, allow login without profile check
-        setSession(data.session)
-        setProfile(null)
-        return null
+      if (error) {
+        if (/email not confirmed/i.test(error.message)) return 'Confirm your email address first. Check your inbox for the confirmation link.'
+        if (/invalid login credentials/i.test(error.message)) return 'The email or password is incorrect.'
+        return error.message
       }
+      // Profiles are created by the database when the account is created;
+      // the browser never creates or changes them.
+      const { data: accountProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, active')
+        .eq('id', data.user.id)
+        .maybeSingle()
+      if (profileError || !accountProfile) {
+        await supabase.auth.signOut()
+        setSession(null)
+        setProfile(null)
+        return 'Your account is not set up yet. Please contact admissions.'
+      }
+      if (!accountProfile.active) {
+        await supabase.auth.signOut()
+        setSession(null)
+        setProfile(null)
+        return 'This account is inactive.'
+      }
+      setSession(data.session)
+      setProfile(accountProfile as Profile)
+      setProfileFor(data.user.id)
+      return null
+    },
+    signUp: async ({ firstName, lastName, email, password, redirectTo }) => {
+      if (!supabase) return { error: 'Account creation is not available right now. Please contact admissions.' }
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectTo,
+          data: { first_name: firstName, last_name: lastName, full_name: `${firstName} ${lastName}`.trim() },
+        },
+      })
+      if (error) {
+        if (/already registered|already exists/i.test(error.message)) return { error: 'An account with this email already exists. Sign in instead.' }
+        if (/password/i.test(error.message)) return { error: error.message }
+        return { error: 'Your account could not be created. Please try again.' }
+      }
+      // With email confirmation on, an existing address returns a user with no identities.
+      if (data.user && data.user.identities?.length === 0) {
+        return { error: 'An account with this email already exists. Sign in instead.' }
+      }
+      return { needsConfirmation: !data.session }
+    },
+    resetPassword: async (email, redirectTo) => {
+      if (!supabase) return 'Password reset is not available right now. Please contact admissions.'
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      return error ? 'We could not send the reset email. Please try again in a few minutes.' : null
+    },
+    updatePassword: async password => {
+      if (!supabase) return 'Password reset is not available right now.'
+      const { error } = await supabase.auth.updateUser({ password })
+      return error ? error.message : null
+    },
+    refreshProfile: async () => {
+      await loadProfile(session?.user.id)
     },
     signOut: async () => {
       window.sessionStorage.removeItem(localSessionKey)
       setSession(null)
       setProfile(null)
+      setProfileFor(null)
       if (supabase) await supabase.auth.signOut()
     },
-  }), [loading, session, profile])
+  }), [loading, session, profile, profileFor])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

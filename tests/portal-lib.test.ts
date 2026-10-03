@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { safeNextPath } from '../src/portal/safeNextPath'
-import { MAX_UPLOAD_BYTES, profileSchema, validateUploadFile } from '../src/portal/schemas'
+import { MAX_UPLOAD_BYTES, fieldErrors, profileSchema, signInSchema, signUpSchema, validateUploadFile } from '../src/portal/schemas'
 import { STAFF_TRANSITIONS, isEditableByStudent } from '../src/portal/model'
 
 describe('safeNextPath', () => {
@@ -70,5 +70,33 @@ describe('status model', () => {
     expect(isEditableByStudent('INFO_REQUIRED')).toBe(true)
     expect(isEditableByStudent('SUBMITTED')).toBe(false)
     expect(isEditableByStudent('APPROVED')).toBe(false)
+  })
+})
+
+describe('signUpSchema', () => {
+  const valid = { firstName: 'Ann', lastName: 'Able', email: 'ann@example.com', password: 'correct-horse', confirmPassword: 'correct-horse' }
+  it('accepts a valid account', () => {
+    expect(signUpSchema.safeParse(valid).success).toBe(true)
+  })
+  it('requires at least 10 password characters', () => {
+    const result = signUpSchema.safeParse({ ...valid, password: 'short-pw1', confirmPassword: 'short-pw1' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(fieldErrors(result.error).password).toMatch(/10 characters/)
+  })
+  it('requires matching passwords', () => {
+    const result = signUpSchema.safeParse({ ...valid, confirmPassword: 'something-else' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(fieldErrors(result.error).confirmPassword).toMatch(/match/)
+  })
+  it('rejects an invalid email', () => {
+    expect(signUpSchema.safeParse({ ...valid, email: 'not-an-email' }).success).toBe(false)
+  })
+})
+
+describe('signInSchema', () => {
+  it('requires email and password', () => {
+    const result = signInSchema.safeParse({ email: '', password: '' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(Object.keys(fieldErrors(result.error)).sort()).toEqual(['email', 'password'])
   })
 })

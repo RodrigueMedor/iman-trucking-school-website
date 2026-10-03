@@ -61,6 +61,27 @@ export const assessmentChoiceSchema = z.object({
 })
 export type AssessmentChoiceInput = z.infer<typeof assessmentChoiceSchema>
 
+export const MIN_PASSWORD_LENGTH = 10
+
+export const signInSchema = z.object({
+  email: z.string().trim().min(1, 'Enter your email address').email('Enter a valid email address'),
+  password: z.string().min(1, 'Enter your password'),
+})
+
+export const signUpSchema = z.object({
+  firstName: required('First name'),
+  lastName: required('Last name'),
+  email: z.string().trim().email('Enter a valid email address'),
+  password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(72, 'Use at most 72 characters'),
+  confirmPassword: z.string(),
+}).refine(value => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' })
+export type SignUpFormInput = z.infer<typeof signUpSchema>
+
+export const newPasswordSchema = z.object({
+  password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(72, 'Use at most 72 characters'),
+  confirmPassword: z.string(),
+}).refine(value => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' })
+
 /** Returns an error message, or null when the file is acceptable. */
 export function validateUploadFile(file: { name: string; type: string; size: number }): string | null {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
