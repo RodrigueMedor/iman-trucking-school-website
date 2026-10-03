@@ -20,6 +20,7 @@ import {
 import { DocumentUploader } from '../DocumentUploader'
 import { PortalLoading } from '../RequireStudent'
 import { cardSx, formatDate, formatDateTime, formatSessionDate, NAVY, PageHeader } from '../ui'
+import { FinancingCallout } from '../../components/financing/FinancingCallout'
 
 type StepKey = 'personal' | 'license' | 'program' | 'dates' | 'documents' | 'test' | 'review'
 const STEP_LABEL: Record<StepKey, string> = {
@@ -464,6 +465,9 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
             </TextField>
             <TextField fullWidth multiline minRows={3} label="Anything you'd like admissions to know? (optional)" value={form.statement}
               onChange={e => setField('statement')(e.target.value)} sx={{ mt: 3 }} {...err('statement')} />
+            <Box sx={{ mt: 3 }}>
+              <FinancingCallout variant="inline" title="Need Help Paying for CDL Training?" />
+            </Box>
           </>
         )}
 

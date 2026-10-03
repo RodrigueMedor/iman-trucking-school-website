@@ -16,6 +16,7 @@ import { TYPE_LABEL, type ApplicationType } from '../model'
 import { StatusChip } from '../StatusChip'
 import { PayFeeDialog } from '../PayFeeDialog'
 import { cardSx, EmptyState, formatDate, formatDateTime, ListSkeleton, NAVY, PageHeader, SectionCard } from '../ui'
+import { FinancingCallout } from '../../components/financing/FinancingCallout'
 
 const ACTIONS: Record<ApplicationType, { icon: ReactElement; blurb: string; to: string }> = {
   TRAINING: { icon: <LocalShippingRounded />, blurb: 'Enroll in Class A or Class B CDL training.', to: '/portal/apply/training' },
@@ -135,6 +136,10 @@ export function Dashboard() {
           </Grid>
         ))}
       </Grid>
+
+      <Box sx={{ mb: { xs: 2, md: 3 } }}>
+        <FinancingCallout variant="card" title="Explore CDL Training Financing" />
+      </Box>
 
       <Grid container spacing={{ xs: 2, md: 3 }}>
         <Grid size={{ xs: 12, lg: 8 }}>
