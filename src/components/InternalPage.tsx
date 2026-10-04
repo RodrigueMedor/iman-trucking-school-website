@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Box,
   Button,
@@ -453,7 +454,14 @@ function StandardContent({ content }: { content: PageContent }) {
 
 function GalleryPage() {
   const { content } = useContent()
-  const images = galleryImages.map((src, index) => content('gallery', `image-${index + 1}`, { section_label: `Gallery image ${index + 1}`, image_url: src }))
+  // Photos whose file is missing (e.g. old WordPress uploads) are hidden
+  // instead of rendering as empty cards.
+  const [failed, setFailed] = useState<Set<string>>(() => new Set())
+  const images = galleryImages
+    .map((src, index) => content('gallery', `image-${index + 1}`, { section_label: `Gallery image ${index + 1}`, image_url: src }))
+    .filter(item => item.image_url && !failed.has(item.image_url))
+  const hide = (url: string) => setFailed(current => new Set(current).add(url))
+  if (!images.length) return null
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f5f7fa' }}>
       <Container>
@@ -465,6 +473,7 @@ function GalleryPage() {
                 src={item.image_url}
                 alt={`Iman Trucking School training and student experience ${index + 1}`}
                 loading="lazy"
+                onError={() => hide(item.image_url)}
                 sx={{
                   display: 'block',
                   width: '100%',
