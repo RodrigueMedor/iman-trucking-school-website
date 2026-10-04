@@ -9,7 +9,7 @@ import ArrowBack from '@mui/icons-material/ArrowBack'
 import MarkEmailRead from '@mui/icons-material/MarkEmailRead'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { homeForRole } from '../lib/adminAuth'
+import { homeForRole, isStaffRole } from '../lib/adminAuth'
 import { safeNextPath } from './safeNextPath'
 import { fieldErrors, MIN_PASSWORD_LENGTH, newPasswordSchema, signInSchema, signUpSchema, verificationCodeSchema } from './schemas'
 import { PortalLoading } from './RequireStudent'
@@ -119,7 +119,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   useEffect(() => {
     if (mode === 'reset' || mode === 'verify' || !session || !profileReady || !profile) return
     if (!profile.active) return
-    if (profile.role === 'student') navigate(next, { replace: true })
+    if (!isStaffRole(profile.role)) navigate(profile.role === 'student' ? next : homeForRole(profile.role), { replace: true })
     else if (signedInHere) navigate(homeForRole(profile.role), { replace: true })
   }, [mode, session, profileReady, profile, next, navigate, signedInHere])
 
@@ -314,7 +314,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   }
 
   const registering = mode === 'register'
-  if (session && profileReady && profile && profile.active && profile.role !== 'student' && !signedInHere) {
+  if (session && profileReady && profile && profile.active && isStaffRole(profile.role) && !signedInHere) {
     return (
       <AuthShell>
         <Typography variant="h4" fontWeight={900} gutterBottom>You're signed in as staff</Typography>
