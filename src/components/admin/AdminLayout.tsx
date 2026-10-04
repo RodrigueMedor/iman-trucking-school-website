@@ -4,6 +4,7 @@ import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded'
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded'
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
@@ -17,15 +18,20 @@ const links = [
   ['Applications', '/admin/cdl-applications/', <AssignmentRoundedIcon />],
   ['Financing referrals', '/admin/financing-referrals/', <AccountBalanceRoundedIcon />],
 ] as const
+// Instructors can only open the instructor page (see ProtectedRoute).
+const instructorLinks = [
+  ['ELP submissions', '/admin/cdl-instructor/', <FactCheckRoundedIcon />],
+] as const
 
 export function AdminLayout() {
   const { pathname } = useLocation()
   const { profile, signOut } = useAuth()
   const [open, setOpen] = useState(false)
+  const navLinks = profile?.role === 'instructor' ? instructorLinks : links
   const drawer = <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#071a33', color: 'white' }}>
     <Box sx={{ p: 3 }}><Typography fontWeight={950} fontSize={20}>IMAN TRUCKING SCHOOL</Typography><Typography color="rgba(255,255,255,.55)" fontSize={11} letterSpacing=".13em" fontWeight={900}>WEBSITE STUDIO</Typography></Box>
     <Divider sx={{ borderColor: 'rgba(255,255,255,.1)' }} />
-    <List sx={{ p: 1.5 }}>{links.map(([label, path, icon]) => <ListItemButton key={path} component={Link} to={path} selected={path === '/admin/' ? pathname === path : pathname.startsWith(path)} onClick={() => setOpen(false)} sx={{ color: 'rgba(255,255,255,.74)', borderRadius: 2.5, mb: .75, '&.Mui-selected': { bgcolor: 'rgba(214,31,44,.2)', color: '#ff7379' } }}><ListItemIcon sx={{ color: 'inherit', minWidth: 42 }}>{icon}</ListItemIcon><ListItemText primary={label} primaryTypographyProps={{ fontWeight: 850 }} /></ListItemButton>)}</List>
+    <List sx={{ p: 1.5 }}>{navLinks.map(([label, path, icon]) => <ListItemButton key={path} component={Link} to={path} selected={path === '/admin/' ? pathname === path : pathname.startsWith(path)} onClick={() => setOpen(false)} sx={{ color: 'rgba(255,255,255,.74)', borderRadius: 2.5, mb: .75, '&.Mui-selected': { bgcolor: 'rgba(214,31,44,.2)', color: '#ff7379' } }}><ListItemIcon sx={{ color: 'inherit', minWidth: 42 }}>{icon}</ListItemIcon><ListItemText primary={label} primaryTypographyProps={{ fontWeight: 850 }} /></ListItemButton>)}</List>
     <Box sx={{ mt: 'auto', p: 2 }}><Button component={Link} to="/" target="_blank" fullWidth startIcon={<HomeRoundedIcon />} sx={{ color: 'rgba(255,255,255,.72)', justifyContent: 'flex-start' }}>View public website</Button></Box>
   </Box>
   return <Box sx={{ minHeight: '100vh', bgcolor: '#f3f6fa' }}>
