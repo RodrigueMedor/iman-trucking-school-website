@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError, toMessage } from '../src/portal/errors'
+import { ApiError, isEmailRateLimited, toMessage } from '../src/portal/errors'
 
 describe('toMessage', () => {
   it('explains a missing license document', () => {
@@ -39,5 +39,17 @@ describe('toMessage', () => {
     const message = toMessage({ code: 'XX000', message: 'relation "x" does not exist' })
     expect(message).not.toMatch(/relation/)
     expect(message).toMatch(/try again/i)
+  })
+})
+
+describe('isEmailRateLimited', () => {
+  it('detects the Supabase email rate-limit error', () => {
+    expect(isEmailRateLimited({ code: 'over_email_send_rate_limit', status: 429, message: 'email rate limit exceeded' })).toBe(true)
+    expect(isEmailRateLimited({ status: 429, message: 'email rate limit exceeded' })).toBe(true)
+  })
+  it('ignores other auth errors', () => {
+    expect(isEmailRateLimited({ status: 429, message: 'Request rate limit reached' })).toBe(false)
+    expect(isEmailRateLimited({ status: 400, message: 'Invalid login credentials' })).toBe(false)
+    expect(isEmailRateLimited(null)).toBe(false)
   })
 })

@@ -28,6 +28,16 @@ const FIELD_LABELS: Record<string, string> = {
 
 const GENERIC = 'Something went wrong. Please try again.'
 
+export const EMAIL_RATE_LIMIT_MESSAGE =
+  'We\'re sending a lot of emails right now. Please wait about an hour and try again, or contact admissions if it\'s urgent.'
+
+/** Supabase Auth refused to send an email (confirmation, reset) because the project's hourly email limit was reached. */
+export function isEmailRateLimited(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { code, status, message } = error as { code?: string; status?: number; message?: string }
+  return code === 'over_email_send_rate_limit' || (status === 429 && /email/i.test(message ?? ''))
+}
+
 /**
  * Maps Supabase, storage, network and API errors to a message a student can
  * act on. Raw database text is never shown; it goes to the console instead.
