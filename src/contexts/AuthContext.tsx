@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { EMAIL_RATE_LIMIT_MESSAGE, isEmailRateLimited } from '../portal/errors'
 
 type LocalRole = 'super_admin' | 'instructor' | 'student'
 type Profile = { id: string; full_name: string; role: LocalRole | 'admin' | 'employee'; active: boolean }
@@ -160,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       })
       if (error) {
+        if (isEmailRateLimited(error)) return { error: EMAIL_RATE_LIMIT_MESSAGE }
         if (/already registered|already exists/i.test(error.message)) return { error: 'An account with this email already exists. Sign in instead.' }
         if (/password/i.test(error.message)) return { error: error.message }
         return { error: 'Your account could not be created. Please try again.' }
@@ -173,7 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetPassword: async (email, redirectTo) => {
       if (!supabase) return 'Password reset is not available right now. Please contact admissions.'
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
-      return error ? 'We could not send the reset email. Please try again in a few minutes.' : null
+      if (!error) return null
+      if (isEmailRateLimited(error)) return EMAIL_RATE_LIMIT_MESSAGE
+      return 'We could not send the reset email. Please try again in a few minutes.'
     },
     updatePassword: async password => {
       if (!supabase) return 'Password reset is not available right now.'
