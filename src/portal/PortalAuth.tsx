@@ -9,6 +9,7 @@ import ArrowBack from '@mui/icons-material/ArrowBack'
 import MarkEmailRead from '@mui/icons-material/MarkEmailRead'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { homeForRole } from '../lib/adminAuth'
 import { safeNextPath } from './safeNextPath'
 import { fieldErrors, MIN_PASSWORD_LENGTH, newPasswordSchema, signInSchema, signUpSchema, verificationCodeSchema } from './schemas'
 import { PortalLoading } from './RequireStudent'
@@ -28,10 +29,6 @@ function intentFor(next: string) {
   if (next.startsWith('/portal/documents')) return 'Sign in to upload and view your documents.'
   if (next.startsWith('/portal/applications')) return 'Sign in to track your applications.'
   return null
-}
-
-function staffHome(role: string) {
-  return role === 'instructor' ? '/admin/cdl-instructor/' : '/admin/'
 }
 
 function PasswordField(props: {
@@ -87,7 +84,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = safeNextPath(params.get('next'))
-  const { configured, loading, profileReady, session, profile, signIn, signUp, verifyEmail, resendVerification, resetPassword, updatePassword } = useAuth()
+  const { configured, loading, profileReady, session, profile, signIn, signUp, verifyEmail, resendVerification, resetPassword, updatePassword, signOut } = useAuth()
 
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -97,6 +94,9 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   const [code, setCode] = useState('')
   const [resendIn, setResendIn] = useState(0)
   const [notice, setNotice] = useState('')
+  // Staff are sent to the admin dashboard only after signing in on this form,
+  // never because an earlier staff session is still open in this browser.
+  const [signedInHere, setSignedInHere] = useState(false)
 
   useEffect(() => {
     if (mode !== 'verify') return
@@ -119,8 +119,9 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   useEffect(() => {
     if (mode === 'reset' || mode === 'verify' || !session || !profileReady || !profile) return
     if (!profile.active) return
-    navigate(profile.role === 'student' ? next : staffHome(profile.role), { replace: true })
-  }, [mode, session, profileReady, profile, next, navigate])
+    if (profile.role === 'student') navigate(next, { replace: true })
+    else if (signedInHere) navigate(homeForRole(profile.role), { replace: true })
+  }, [mode, session, profileReady, profile, next, navigate, signedInHere])
 
   useEffect(() => {
     setErrors({})
@@ -149,6 +150,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
     if (!parsed.success) return setErrors(fieldErrors(parsed.error))
     void run(async () => {
       const message = await signIn(parsed.data.email, parsed.data.password)
+      if (!message) setSignedInHere(true)
       if (message) {
         setFormError(message)
         if (/verification code/i.test(message)) {
@@ -312,6 +314,22 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   }
 
   const registering = mode === 'register'
+  if (session && profileReady && profile && profile.active && profile.role !== 'student' && !signedInHere) {
+    return (
+      <AuthShell>
+        <Typography variant="h4" fontWeight={900} gutterBottom>You're signed in as staff</Typography>
+        <Typography color="text.secondary" sx={{ mb: 3 }}>
+          This browser is signed in to a staff account{session.user.email ? <> (<strong>{session.user.email}</strong>)</> : null}.
+          Sign out to {registering ? 'create a student account' : 'sign in as a student'}.
+        </Typography>
+        <Stack spacing={2}>
+          <Button variant="contained" color="secondary" size="large" disabled={busy} onClick={() => void run(signOut)}>Sign out</Button>
+          <Button component={Link} to={homeForRole(profile.role)} variant="outlined">Go to admin dashboard</Button>
+        </Stack>
+      </AuthShell>
+    )
+  }
+
   return (
     <AuthShell>
       <Typography variant="overline" fontWeight={900} letterSpacing=".12em" color="secondary.main" display="block">
