@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { homeForRole } from '../src/lib/adminAuth'
+import { homeForRole, isStaffRole } from '../src/lib/adminAuth'
 import { safeNextPath } from '../src/portal/safeNextPath'
 import { MAX_UPLOAD_BYTES, fieldErrors, profileSchema, signInSchema, signUpSchema, validateUploadFile, verificationCodeSchema } from '../src/portal/schemas'
 import { STAFF_TRANSITIONS, isEditableByStudent } from '../src/portal/model'
@@ -127,5 +127,14 @@ describe('homeForRole', () => {
     expect(homeForRole('student')).toBe('/portal/')
     expect(homeForRole('instructor')).toBe('/admin/cdl-instructor/')
     expect(homeForRole('super_admin')).toBe('/admin/')
+  })
+
+  it('sends accounts with any other role to the portal, never the admin area', () => {
+    for (const role of ['admin', 'employee', '', null, undefined]) {
+      expect(homeForRole(role)).toBe('/portal/')
+      expect(isStaffRole(role)).toBe(false)
+    }
+    expect(isStaffRole('super_admin')).toBe(true)
+    expect(isStaffRole('instructor')).toBe(true)
   })
 })
