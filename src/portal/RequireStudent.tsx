@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, Typography } from '@mui/material'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { homeForRole, isStaffRole } from '../lib/adminAuth'
+import { setUpStudentAccount } from './api'
 
 export function PortalLoading() {
   return (
@@ -27,6 +29,32 @@ function Blocked({ title, body, action }: { title: string; body: string; action?
   )
 }
 
+const notSetUp = { title: 'Account not set up', body: 'Your account is not set up as a student account yet. Please contact admissions so we can finish setting it up.' }
+
+/**
+ * Accounts with no profile or a legacy role are converted into student
+ * accounts by the API server, then the profile is reloaded. Only if that
+ * fails does the student see the "not set up" message.
+ */
+function SetUpStudentAccount() {
+  const { refreshProfile } = useAuth()
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setUpStudentAccount()
+      .then(result => (result.repaired ? refreshProfile() : Promise.reject(new Error('Account was not changed'))))
+      // A fixed account re-renders the portal instead of this component, so
+      // reaching this point with it still shown means the fix did not take.
+      .then(() => { if (!cancelled) setFailed(true) })
+      .catch(error => {
+        console.error('Failed to set up student account:', error)
+        if (!cancelled) setFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+  return failed ? <Blocked {...notSetUp} /> : <PortalLoading />
+}
+
 /**
  * Guards every /portal/ page. Signed-out visitors go to sign-in with the page
  * they asked for as `next`, so they land back on it afterwards.
@@ -44,14 +72,10 @@ export function RequireStudent() {
     return <Navigate to={`/portal/sign-in?next=${next}`} replace />
   }
   if (!profileReady) return <PortalLoading />
-  if (!profile) {
-    return <Blocked title="Account not set up" body="We couldn't find your student profile. Please contact admissions so we can finish setting up your account." />
-  }
+  if (!profile) return <SetUpStudentAccount />
+  if (profile.role !== 'student' && !isStaffRole(profile.role)) return <SetUpStudentAccount />
   if (!profile.active) {
     return <Blocked title="Account inactive" body="This account has been deactivated. Please contact admissions." />
-  }
-  if (profile.role !== 'student' && !isStaffRole(profile.role)) {
-    return <Blocked title="Account not set up" body="Your account is not set up as a student account yet. Please contact admissions so we can finish setting it up." />
   }
   if (profile.role !== 'student') {
     return <Blocked title="Staff account" body="The student portal is for students. Staff manage applications from the admin dashboard." action={{ label: 'Go to admin dashboard', to: homeForRole(profile.role) }} />

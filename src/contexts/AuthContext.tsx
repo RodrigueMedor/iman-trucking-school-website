@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { EMAIL_RATE_LIMIT_MESSAGE, isEmailRateLimited } from '../portal/errors'
+import { setUpStudentAccount } from '../portal/api'
 
 type LocalRole = 'super_admin' | 'instructor' | 'student'
 type Profile = { id: string; full_name: string; role: LocalRole | 'admin' | 'employee'; active: boolean }
@@ -132,11 +133,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       // Profiles are created by the database when the account is created;
       // the browser never creates or changes them.
-      const { data: accountProfile, error: profileError } = await supabase
+      const fetchProfile = () => supabase!
         .from('profiles')
         .select('id, full_name, role, active')
         .eq('id', data.user.id)
         .maybeSingle()
+      let { data: accountProfile, error: profileError } = await fetchProfile()
+      // Older accounts may have no profile or a legacy role; the API server
+      // turns those into student accounts before we decide where to go.
+      if (!profileError && !['student', 'super_admin', 'instructor'].includes(accountProfile?.role ?? '')) {
+        try {
+          if ((await setUpStudentAccount()).repaired) ({ data: accountProfile, error: profileError } = await fetchProfile())
+        } catch (repairError) {
+          console.error('Failed to set up student account:', repairError)
+        }
+      }
       if (profileError || !accountProfile) {
         await supabase.auth.signOut()
         setSession(null)

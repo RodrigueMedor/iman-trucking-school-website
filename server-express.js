@@ -929,6 +929,65 @@ app.patch('/api/me/student', studentOnly, async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
+// Accounts created before roles were locked down can carry a legacy role
+// ('admin', 'employee') or have no profile at all. Neither has staff access,
+// so when such an account signs in to the student portal it is turned into
+// the student account the portal expects. Staff and students are untouched.
+// ---------------------------------------------------------------------------
+
+const PORTAL_ROLES = new Set(['student', 'super_admin', 'instructor'])
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || process.env.VITE_SUPER_ADMIN_EMAIL || 'rodriguemedor@yahoo.fr').trim().toLowerCase()
+
+app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => {
+  try {
+    const { data: profile, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
+    if (error) throw error
+    if (profile && PORTAL_ROLES.has(profile.role)) return res.json({ role: profile.role, repaired: false })
+    if (req.user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL) {
+      return res.status(409).json({ error: 'This account is managed by the super administrator.' })
+    }
+
+    const { data: found, error: userError } = await supabase.auth.admin.getUserById(req.user.id)
+    if (userError || !found?.user) throw userError || new Error('Auth user not found')
+    const user = found.user
+    const meta = user.user_metadata || {}
+    const verified = Boolean(user.email_confirmed_at)
+    const email = user.email || req.user.email
+    const localPart = email.split('@')[0] || 'Student'
+
+    // Recording the role in app_metadata stops the auth trigger from ever
+    // restoring the legacy role.
+    const { error: metaError } = await supabase.auth.admin.updateUserById(user.id, {
+      app_metadata: { ...(user.app_metadata || {}), role: 'student' },
+    })
+    if (metaError) throw metaError
+
+    const { error: profileError } = profile
+      ? await supabase.from('profiles').update({ role: 'student', active: verified }).eq('id', user.id)
+      : await supabase.from('profiles').upsert({ id: user.id, full_name: meta.full_name || localPart, role: 'student', active: verified })
+    if (profileError) throw profileError
+
+    const { error: usersError } = await supabase.from('cdl_users')
+      .upsert({ id: user.id, role: 'student', email, updated_at: new Date().toISOString() })
+    if (usersError) throw usersError
+
+    const { error: studentError } = await supabase.from('cdl_students').upsert({
+      user_id: user.id,
+      first_name: meta.first_name || localPart,
+      last_name: meta.last_name || '',
+      email,
+    }, { onConflict: 'user_id', ignoreDuplicates: true })
+    if (studentError) throw studentError
+
+    console.info(`Converted account ${user.id} (role ${profile?.role ?? 'none'}) to a student account.`)
+    res.json({ role: 'student', repaired: true })
+  } catch (error) {
+    console.error('Error setting up student account:', error)
+    res.status(500).json({ error: 'Your student account could not be set up. Please contact admissions.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Instructor accounts are created server-side by a super admin. The role is
 // set in app_metadata, which only the service role can write; the database
 // ignores roles in user-editable metadata.

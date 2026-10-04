@@ -352,6 +352,14 @@ export async function authedFetch<T = unknown>(path: string, init: RequestInit =
   return body as T
 }
 
+/**
+ * Asks the API server to turn an account with a legacy role (or no profile)
+ * into a student account. Staff and student accounts are left unchanged.
+ */
+export function setUpStudentAccount() {
+  return authedFetch<{ role: string; repaired: boolean }>('/api/me/student-account', { method: 'POST', body: '{}' })
+}
+
 export function notifyAdmissions(applicationId: string) {
   return authedFetch<{ sent: boolean }>(`/api/applications/${applicationId}/notify`, { method: 'POST', body: '{}' })
 }
