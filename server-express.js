@@ -853,6 +853,65 @@ app.post('/api/applications/:id/notify', studentOnly, async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
+// The signed-in student's own cdl_students row. Served here rather than read
+// from the browser so the portal does not depend on cdl_students RLS. The
+// service role bypasses cdl_students_guard, so only the student-editable
+// fields below are accepted (.strict() rejects payment and owner fields).
+// ---------------------------------------------------------------------------
+
+const optionalText = (max) => z.string().trim().max(max).nullable().optional()
+const studentProfilePatchSchema = z.object({
+  first_name: z.string().trim().min(1, 'First name is required.').max(100).optional(),
+  last_name: z.string().trim().min(1, 'Last name is required.').max(100).optional(),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(254).nullable().optional(),
+  phone: optionalText(30),
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid date of birth.').nullable().optional(),
+  address_line1: optionalText(200),
+  address_line2: optionalText(200),
+  city: optionalText(100),
+  state: z.string().regex(/^[A-Z]{2}$/, 'Choose a state.').nullable().optional(),
+  zip_code: z.string().regex(/^\d{5}(-\d{4})?$/, 'Enter a valid ZIP code.').nullable().optional(),
+  license_type: z.enum(['NONE', 'REGULAR', 'CLP', 'CDL']).nullable().optional(),
+  license_number: optionalText(30),
+  license_state: z.string().regex(/^([A-Z]{2})?$/, 'Choose the state that issued your license.').nullable().optional(),
+}).strict()
+
+app.get('/api/me/student', requireUser, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_students').select('*').eq('user_id', req.user.id).maybeSingle()
+    if (error) throw error
+    res.json({ student: data })
+  } catch (error) {
+    console.error('Error loading student profile:', error)
+    res.status(500).json({ error: 'Could not load your profile. Try again shortly.' })
+  }
+})
+
+app.patch('/api/me/student', studentOnly, async (req, res) => {
+  const parsed = studentProfilePatchSchema.safeParse(req.body ?? {})
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check your answers and try again.' })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('cdl_students')
+      .update(parsed.data)
+      .eq('user_id', req.user.id)
+      .select('*')
+      .maybeSingle()
+    if (error) {
+      if (error.code === '23514') return res.status(400).json({ error: 'Some information isn\'t in the expected format. Check your answers and try again.' })
+      throw error
+    }
+    if (!data) return res.status(404).json({ error: 'We couldn\'t find your student profile. Please contact admissions.' })
+    res.json({ student: data })
+  } catch (error) {
+    console.error('Error saving student profile:', error)
+    res.status(500).json({ error: 'Could not save your profile. Try again shortly.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Instructor accounts are created server-side by a super admin. The role is
 // set in app_metadata, which only the service role can write; the database
 // ignores roles in user-editable metadata.

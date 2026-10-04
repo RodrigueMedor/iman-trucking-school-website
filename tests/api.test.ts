@@ -46,6 +46,20 @@ describe('student API authorization', () => {
     expect(res.status).toBe(503)
   })
 
+  it.each(['GET', 'PATCH'])('%s /api/me/student requires a bearer token', async method => {
+    const res = await fetch(`${base}/api/me/student`, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : '{}' })
+    expect(res.status).toBe(401)
+  })
+
+  it.each(['GET', 'PATCH'])('%s /api/me/student returns 503 when the database is not configured', async method => {
+    const res = await fetch(`${base}/api/me/student`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer x' },
+      body: method === 'GET' ? undefined : '{}',
+    })
+    expect(res.status).toBe(503)
+  })
+
   it('rejects a malformed Authorization header', async () => {
     const res = await post('/api/elp-submissions', { Authorization: 'Basic abc' })
     expect(res.status).toBe(401)

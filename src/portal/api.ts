@@ -120,14 +120,19 @@ function check<T>(result: { data: T; error: unknown }): T {
 
 // ------------------------------------------------------------------ profile
 
+// The student row is read and written through the API server, which owns the
+// field allow-list, instead of relying on cdl_students RLS from the browser.
 export async function getMyStudent(): Promise<StudentProfile | null> {
-  const user = await currentUser()
-  return check(await client().from('cdl_students').select('*').eq('user_id', user.id).maybeSingle()) as StudentProfile | null
+  const { student } = await authedFetch<{ student: StudentProfile | null }>('/api/me/student')
+  return student
 }
 
 export async function updateMyStudent(patch: StudentProfilePatch): Promise<StudentProfile> {
-  const user = await currentUser()
-  return check(await client().from('cdl_students').update(patch).eq('user_id', user.id).select('*').single()) as StudentProfile
+  const { student } = await authedFetch<{ student: StudentProfile }>('/api/me/student', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+  return student
 }
 
 /** Keeps the account display name (shown in the portal header) in sync. */
