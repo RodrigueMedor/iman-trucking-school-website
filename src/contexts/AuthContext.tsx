@@ -6,6 +6,7 @@ import { EMAIL_RATE_LIMIT_MESSAGE, isEmailRateLimited } from '../portal/errors'
 type LocalRole = 'super_admin' | 'instructor' | 'student'
 type Profile = { id: string; full_name: string; role: LocalRole | 'admin' | 'employee'; active: boolean }
 export type SignUpInput = { firstName: string; lastName: string; email: string; password: string; redirectTo: string }
+export type VerificationResult = { error?: string; verified?: boolean }
 type AuthValue = {
   configured: boolean
   loading: boolean
@@ -15,6 +16,8 @@ type AuthValue = {
   profile: Profile | null
   signIn: (email: string, password: string) => Promise<string | null>
   signUp: (input: SignUpInput) => Promise<{ error?: string; needsConfirmation?: boolean }>
+  verifyEmail: (email: string, code: string) => Promise<VerificationResult>
+  resendVerification: (email: string) => Promise<string | null>
   resetPassword: (email: string, redirectTo: string) => Promise<string | null>
   updatePassword: (password: string) => Promise<string | null>
   refreshProfile: () => Promise<void>
@@ -122,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase) return 'Authentication has not been configured for this deployment.'
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
-        if (/email not confirmed/i.test(error.message)) return 'Confirm your email address first. Check your inbox for the confirmation link.'
+        if (/email not confirmed/i.test(error.message)) return 'Enter the verification code sent to your email before signing in.'
         if (/invalid login credentials/i.test(error.message)) return 'The email or password is incorrect.'
         return error.message
       }
@@ -171,6 +174,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'An account with this email already exists. Sign in instead.' }
       }
       return { needsConfirmation: !data.session }
+    },
+    verifyEmail: async (email, code) => {
+      if (!supabase) return { error: 'Email verification is not available right now. Please contact admissions.' }
+      const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' })
+      if (error) {
+        if (error.code === 'otp_expired' || /expired/i.test(error.message)) {
+          return { error: 'This code is invalid or has expired. Request a new code and try again.' }
+        }
+        if (/invalid|token/i.test(error.message)) return { error: 'That verification code is incorrect.' }
+        if (isEmailRateLimited(error)) return { error: EMAIL_RATE_LIMIT_MESSAGE }
+        return { error: 'We could not verify that code. Please try again.' }
+      }
+      // Verification returns a session. End it so the user completes the explicit
+      // Verify Email -> Login step and receives the normal role-based redirect.
+      await supabase.auth.signOut()
+      setSession(null)
+      setProfile(null)
+      setProfileFor(null)
+      return { verified: true }
+    },
+    resendVerification: async email => {
+      if (!supabase) return 'Email verification is not available right now. Please contact admissions.'
+      const { error } = await supabase.auth.resend({ type: 'signup', email })
+      if (!error) return null
+      if (isEmailRateLimited(error) || error.status === 429) return 'Please wait before requesting another code.'
+      return 'We could not send another code. Please try again in a few minutes.'
     },
     resetPassword: async (email, redirectTo) => {
       if (!supabase) return 'Password reset is not available right now. Please contact admissions.'

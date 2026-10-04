@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { safeNextPath } from '../src/portal/safeNextPath'
-import { MAX_UPLOAD_BYTES, fieldErrors, profileSchema, signInSchema, signUpSchema, validateUploadFile } from '../src/portal/schemas'
+import { MAX_UPLOAD_BYTES, fieldErrors, profileSchema, signInSchema, signUpSchema, validateUploadFile, verificationCodeSchema } from '../src/portal/schemas'
 import { STAFF_TRANSITIONS, isEditableByStudent } from '../src/portal/model'
 
 describe('safeNextPath', () => {
@@ -107,5 +107,16 @@ describe('signInSchema', () => {
     const result = signInSchema.safeParse({ email: '', password: '' })
     expect(result.success).toBe(false)
     if (!result.success) expect(Object.keys(fieldErrors(result.error)).sort()).toEqual(['email', 'password'])
+  })
+})
+
+describe('verificationCodeSchema', () => {
+  it('accepts exactly six digits', () => {
+    expect(verificationCodeSchema.safeParse('123456').success).toBe(true)
+    expect(verificationCodeSchema.safeParse(' 123456 ').success).toBe(true)
+  })
+
+  it.each(['12345', '1234567', '12a456', ''])('rejects %j', code => {
+    expect(verificationCodeSchema.safeParse(code).success).toBe(false)
   })
 })

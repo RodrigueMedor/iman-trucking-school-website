@@ -85,6 +85,8 @@ export const signUpSchema = z.object({
 }).refine(value => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' })
 export type SignUpFormInput = z.infer<typeof signUpSchema>
 
+export const verificationCodeSchema = z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from your email')
+
 export const newPasswordSchema = z.object({
   password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(72, 'Use at most 72 characters'),
   confirmPassword: z.string(),

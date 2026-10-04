@@ -70,6 +70,7 @@ export function App() {
         </Route>
         <Route path="/portal/sign-in" element={<PortalAuth mode="sign-in" />} />
         <Route path="/portal/register" element={<PortalAuth mode="register" />} />
+        <Route path="/portal/verify-email" element={<PortalAuth mode="verify" />} />
         <Route path="/portal/forgot-password" element={<PortalAuth mode="forgot" />} />
         <Route path="/portal/reset-password" element={<PortalAuth mode="reset" />} />
         <Route element={<RequireStudent />}>

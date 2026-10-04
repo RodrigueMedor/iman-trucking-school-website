@@ -10,10 +10,13 @@ import MarkEmailRead from '@mui/icons-material/MarkEmailRead'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { safeNextPath } from './safeNextPath'
-import { fieldErrors, MIN_PASSWORD_LENGTH, newPasswordSchema, signInSchema, signUpSchema } from './schemas'
+import { fieldErrors, MIN_PASSWORD_LENGTH, newPasswordSchema, signInSchema, signUpSchema, verificationCodeSchema } from './schemas'
 import { PortalLoading } from './RequireStudent'
 
-export type PortalAuthMode = 'sign-in' | 'register' | 'forgot' | 'reset'
+export type PortalAuthMode = 'sign-in' | 'register' | 'verify' | 'forgot' | 'reset'
+
+const pendingEmailKey = 'iman-pending-verification-email'
+const resendCooldownSeconds = 60
 
 /** Explains why the visitor is being asked to sign in, based on where they were going. */
 function intentFor(next: string) {
@@ -84,13 +87,28 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = safeNextPath(params.get('next'))
-  const { configured, loading, profileReady, session, profile, signIn, signUp, resetPassword, updatePassword } = useAuth()
+  const { configured, loading, profileReady, session, profile, signIn, signUp, verifyEmail, resendVerification, resetPassword, updatePassword } = useAuth()
 
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<'' | 'confirm-email' | 'reset-sent'>('')
+  const [code, setCode] = useState('')
+  const [resendIn, setResendIn] = useState(0)
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'verify') return
+    const pendingEmail = window.sessionStorage.getItem(pendingEmailKey)
+    if (pendingEmail) setForm(current => ({ ...current, email: pendingEmail }))
+  }, [mode])
+
+  useEffect(() => {
+    if (resendIn <= 0) return
+    const timer = window.setInterval(() => setResendIn(value => Math.max(0, value - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [resendIn > 0])
 
   const set = (key: keyof typeof form) => (value: string) => {
     setForm(f => ({ ...f, [key]: value }))
@@ -99,7 +117,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
 
   // Once signed in (here, via an email link, or already), send the visitor on.
   useEffect(() => {
-    if (mode === 'reset' || !session || !profileReady || !profile) return
+    if (mode === 'reset' || mode === 'verify' || !session || !profileReady || !profile) return
     if (!profile.active) return
     navigate(profile.role === 'student' ? next : staffHome(profile.role), { replace: true })
   }, [mode, session, profileReady, profile, next, navigate])
@@ -131,7 +149,13 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
     if (!parsed.success) return setErrors(fieldErrors(parsed.error))
     void run(async () => {
       const message = await signIn(parsed.data.email, parsed.data.password)
-      if (message) setFormError(message)
+      if (message) {
+        setFormError(message)
+        if (/verification code/i.test(message)) {
+          window.sessionStorage.setItem(pendingEmailKey, parsed.data.email)
+          navigate(withNext('/portal/verify-email'))
+        }
+      }
     })
   }
 
@@ -145,10 +169,41 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
         lastName: parsed.data.lastName,
         email: parsed.data.email,
         password: parsed.data.password,
-        redirectTo: `${window.location.origin}${withNext('/portal/sign-in')}`,
+        redirectTo: `${window.location.origin}${withNext('/portal/verify-email')}`,
       })
       if (result.error) setFormError(result.error)
-      else if (result.needsConfirmation) setDone('confirm-email')
+      else if (result.needsConfirmation) {
+        window.sessionStorage.setItem(pendingEmailKey, parsed.data.email)
+        navigate(withNext('/portal/verify-email'))
+      }
+    })
+  }
+
+  const onVerify = (e: FormEvent) => {
+    e.preventDefault()
+    const email = signInSchema.shape.email.safeParse(form.email)
+    const parsedCode = verificationCodeSchema.safeParse(code)
+    const nextErrors: Record<string, string> = {}
+    if (!email.success) nextErrors.email = email.error.issues[0]?.message || 'Enter your email address'
+    if (!parsedCode.success) nextErrors.code = parsedCode.error.issues[0]?.message || 'Enter the 6-digit code'
+    if (!email.success || !parsedCode.success) return setErrors(nextErrors)
+    void run(async () => {
+      const result = await verifyEmail(email.data, parsedCode.data)
+      if (result.error) return setFormError(result.error)
+      window.sessionStorage.removeItem(pendingEmailKey)
+      navigate(`${withNext('/portal/sign-in')}&verified=1`, { replace: true })
+    })
+  }
+
+  const onResend = () => {
+    const email = signInSchema.shape.email.safeParse(form.email)
+    if (!email.success) return setErrors({ email: email.error.issues[0]?.message || 'Enter your email address' })
+    void run(async () => {
+      const message = await resendVerification(email.data)
+      if (message) return setFormError(message)
+      window.sessionStorage.setItem(pendingEmailKey, email.data)
+      setNotice('A new verification code was sent. It expires in about 10 minutes.')
+      setResendIn(resendCooldownSeconds)
     })
   }
 
@@ -176,6 +231,31 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
 
   if (!configured) {
     return <AuthShell><Alert severity="warning">Student accounts are not available right now. Please contact admissions.</Alert></AuthShell>
+  }
+
+  if (mode === 'verify') {
+    return (
+      <AuthShell>
+        <Typography variant="h4" fontWeight={900} gutterBottom>Verify your email</Typography>
+        <Typography color="text.secondary" sx={{ mb: 3 }}>Enter the 6-digit code we sent to your email. The code expires in about 10 minutes.</Typography>
+        {formError && <Alert severity="error" sx={{ mb: 3 }} role="alert">{formError}</Alert>}
+        {notice && <Alert severity="success" sx={{ mb: 3 }}>{notice}</Alert>}
+        <Box component="form" noValidate onSubmit={onVerify}>
+          <Stack spacing={2.5}>
+            <TextField fullWidth required name="email" label="Email" type="email" autoComplete="email" value={form.email}
+              onChange={e => set('email')(e.target.value)} error={Boolean(errors.email)} helperText={errors.email} />
+            <TextField fullWidth required name="code" label="Verification code" value={code} autoComplete="one-time-code"
+              onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErrors(current => ({ ...current, code: '' })) }}
+              error={Boolean(errors.code)} helperText={errors.code} inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6 }} />
+            <Button type="submit" variant="contained" color="secondary" size="large" disabled={busy}>Verify email</Button>
+            <Button type="button" variant="outlined" disabled={busy || resendIn > 0} onClick={onResend}>
+              {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+            </Button>
+            <Button component={Link} to={withNext('/portal/sign-in')}>Back to sign in</Button>
+          </Stack>
+        </Box>
+      </AuthShell>
+    )
   }
 
   if (done) {
@@ -255,6 +335,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
       </Tabs>
 
       {formError && <Alert severity="error" sx={{ mb: 3 }} role="alert">{formError}</Alert>}
+      {mode === 'sign-in' && params.get('verified') === '1' && <Alert severity="success" sx={{ mb: 3 }}>Email verified. Sign in to continue.</Alert>}
 
       <Box component="form" noValidate onSubmit={registering ? onRegister : onSignIn}>
         <Stack spacing={2.5}>

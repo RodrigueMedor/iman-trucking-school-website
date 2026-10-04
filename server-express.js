@@ -193,6 +193,23 @@ async function requireUser(req, res, next) {
   }
 }
 
+async function requireStudent(req, res, next) {
+  try {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('role, active')
+      .eq('id', req.user.id)
+      .maybeSingle()
+    if (error) throw error
+    if (!profile?.active) return res.status(403).json({ error: 'This account is inactive or has not been verified.' })
+    if (profile.role !== 'student') return res.status(403).json({ error: 'Student access required.' })
+    next()
+  } catch (error) {
+    console.error('Failed to authorize student:', error)
+    res.status(503).json({ error: 'Could not verify your account access. Try again shortly.' })
+  }
+}
+
 // Simple fixed-window limiter for authenticated POSTs: 20 requests per minute
 // per user. In-memory, which is sufficient for the single Node process.
 const RATE_LIMIT = 20
@@ -216,7 +233,7 @@ function rateLimit(req, res, next) {
   next()
 }
 
-const studentOnly = [requireUser, rateLimit]
+const studentOnly = [requireUser, requireStudent, rateLimit]
 
 // ---------------------------------------------------------------------------
 // Middleware. The Stripe webhook must receive the *raw* request body so the
@@ -876,7 +893,7 @@ const studentProfilePatchSchema = z.object({
   license_state: z.string().regex(/^([A-Z]{2})?$/, 'Choose the state that issued your license.').nullable().optional(),
 }).strict()
 
-app.get('/api/me/student', requireUser, async (req, res) => {
+app.get('/api/me/student', requireUser, requireStudent, async (req, res) => {
   try {
     const { data, error } = await supabase.from('cdl_students').select('*').eq('user_id', req.user.id).maybeSingle()
     if (error) throw error

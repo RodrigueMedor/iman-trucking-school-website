@@ -29,18 +29,37 @@ grant select, insert on t.ids to authenticated, anon;
 
 -- Users: A and B are students; S is staff (role granted via app_metadata);
 -- X tries to self-assign super_admin through user metadata at signup.
-insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, created_at, updated_at)
 values
-  ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'a@test.local', '{"first_name":"Ann","last_name":"Able","full_name":"Ann Able"}', '{}', now(), now()),
-  ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'b@test.local', '{"first_name":"Ben","last_name":"Baker"}', '{}', now(), now()),
-  ('00000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'staff@test.local', '{"full_name":"Sam Staff"}', '{"role":"admin"}', now(), now()),
-  ('00000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'x@test.local', '{"full_name":"Mal","role":"super_admin"}', '{}', now(), now());
+  ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'a@test.local', '{"first_name":"Ann","last_name":"Able","full_name":"Ann Able"}', '{}', now(), now(), now()),
+  ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'b@test.local', '{"first_name":"Ben","last_name":"Baker"}', '{}', now(), now(), now()),
+  ('00000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'staff@test.local', '{"full_name":"Sam Staff"}', '{"role":"admin"}', now(), now(), now()),
+  ('00000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'x@test.local', '{"full_name":"Mal","role":"super_admin"}', '{}', now(), now(), now());
 
 do $$ begin
   assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000d4') = 'student',
     'signup metadata must not grant super_admin';
   assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000c3') = 'admin',
     'app_metadata role is honoured';
+end $$;
+
+-- Unverified public signups remain inactive and user metadata still cannot
+-- elevate the role. Confirming the email activates only the student account.
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, created_at, updated_at)
+values ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'pending@test.local', '{"full_name":"Pending","role":"super_admin"}', '{}', null, now(), now());
+
+do $$ begin
+  assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000e5') = 'student',
+    'public metadata must not elevate an unverified account';
+  assert not (select active from public.profiles where id = '00000000-0000-0000-0000-0000000000e5'),
+    'unverified student must be inactive';
+end $$;
+
+update auth.users set email_confirmed_at = now() where id = '00000000-0000-0000-0000-0000000000e5';
+
+do $$ begin
+  assert (select active from public.profiles where id = '00000000-0000-0000-0000-0000000000e5'),
+    'verified student must become active';
 end $$;
 
 -- ---------------------------------------------------------------- role guard
