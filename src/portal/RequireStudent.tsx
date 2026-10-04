@@ -1,6 +1,7 @@
 import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, Typography } from '@mui/material'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { homeForRole } from '../lib/adminAuth'
 
 export function PortalLoading() {
   return (
@@ -50,7 +51,7 @@ export function RequireStudent() {
     return <Blocked title="Account inactive" body="This account has been deactivated. Please contact admissions." />
   }
   if (profile.role !== 'student') {
-    return <Blocked title="Staff account" body="The student portal is for students. Staff manage applications from the admin dashboard." action={{ label: 'Go to admin dashboard', to: '/admin/' }} />
+    return <Blocked title="Staff account" body="The student portal is for students. Staff manage applications from the admin dashboard." action={{ label: 'Go to admin dashboard', to: homeForRole(profile.role) }} />
   }
   return <Outlet />
 }

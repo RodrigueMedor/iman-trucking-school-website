@@ -120,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.sessionStorage.setItem(localSessionKey, localRole)
         setSession(localAuth.session)
         setProfile(localAuth.profile)
+        setProfileFor(localAuth.session.user.id)
         return null
       }
       if (!supabase) return 'Authentication has not been configured for this deployment.'

@@ -9,6 +9,7 @@ import ArrowBack from '@mui/icons-material/ArrowBack'
 import MarkEmailRead from '@mui/icons-material/MarkEmailRead'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { homeForRole } from '../lib/adminAuth'
 import { safeNextPath } from './safeNextPath'
 import { fieldErrors, MIN_PASSWORD_LENGTH, newPasswordSchema, signInSchema, signUpSchema, verificationCodeSchema } from './schemas'
 import { PortalLoading } from './RequireStudent'
@@ -28,10 +29,6 @@ function intentFor(next: string) {
   if (next.startsWith('/portal/documents')) return 'Sign in to upload and view your documents.'
   if (next.startsWith('/portal/applications')) return 'Sign in to track your applications.'
   return null
-}
-
-function staffHome(role: string) {
-  return role === 'instructor' ? '/admin/cdl-instructor/' : '/admin/'
 }
 
 function PasswordField(props: {
@@ -123,7 +120,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
     if (mode === 'reset' || mode === 'verify' || !session || !profileReady || !profile) return
     if (!profile.active) return
     if (profile.role === 'student') navigate(next, { replace: true })
-    else if (signedInHere) navigate(staffHome(profile.role), { replace: true })
+    else if (signedInHere) navigate(homeForRole(profile.role), { replace: true })
   }, [mode, session, profileReady, profile, next, navigate, signedInHere])
 
   useEffect(() => {
@@ -327,7 +324,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
         </Typography>
         <Stack spacing={2}>
           <Button variant="contained" color="secondary" size="large" disabled={busy} onClick={() => void run(signOut)}>Sign out</Button>
-          <Button component={Link} to={staffHome(profile.role)} variant="outlined">Go to admin dashboard</Button>
+          <Button component={Link} to={homeForRole(profile.role)} variant="outlined">Go to admin dashboard</Button>
         </Stack>
       </AuthShell>
     )

@@ -1,14 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Alert, Box, Button, Container, Paper, Stack, TextField, Typography } from '@mui/material'
 import LockRoundedIcon from '@mui/icons-material/LockRounded'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { SUPER_ADMIN_EMAIL } from '../lib/adminAuth'
+import { homeForRole, SUPER_ADMIN_EMAIL } from '../lib/adminAuth'
 
 export function AdminLogin() {
-  const { configured, session, signIn } = useAuth()
-  const navigate = useNavigate()
+  const { configured, profileReady, session, profile, signIn } = useAuth()
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -17,13 +16,18 @@ export function AdminLogin() {
   const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const [recoveryLoading, setRecoveryLoading] = useState(false)
-  if (session) return <Navigate to="/admin/" replace />
+  // Signed-in accounts go to their own area: staff back to the admin page they
+  // asked for, students to the student portal.
+  if (session && profileReady && profile) {
+    const from = (location.state as { from?: string } | null)?.from
+    const staff = profile.role === 'super_admin' || profile.role === 'instructor'
+    return <Navigate to={staff && from?.startsWith('/admin/') ? from : homeForRole(profile.role)} replace />
+  }
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError('')
     const message = await signIn(email.trim(), password)
     setLoading(false)
     if (message) return setError(message)
-    navigate((location.state as { from?: string } | null)?.from || '/admin/', { replace: true })
   }
   const recover = async () => {
     setError(''); setRecoveryMessage('')

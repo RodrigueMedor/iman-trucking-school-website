@@ -31,6 +31,7 @@ import AccountCircleRoundedIcon from '@mui/icons-material/AccountCircleRounded'
 import XIcon from '@mui/icons-material/X'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { homeForRole } from '../lib/adminAuth'
 
 const truckDrivingLinks = [
   ['Truck Driving School', '/truck-driving-school/'],
@@ -263,7 +264,7 @@ function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
 function PortalButton({ fullWidth = false, onClick }: { fullWidth?: boolean; onClick?: () => void }) {
   const { session, profile } = useAuth()
   const staff = profile && profile.role !== 'student'
-  const to = !session ? '/portal/sign-in' : staff ? '/admin/' : '/portal/'
+  const to = !session ? '/portal/sign-in' : profile ? homeForRole(profile.role) : '/portal/'
   return (
     <Button
       component={RouterLink}
