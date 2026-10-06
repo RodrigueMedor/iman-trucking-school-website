@@ -92,6 +92,7 @@ async function sendMessage(text: string) {
         body: JSON.stringify({
           action: 'handoff',
           sessionId,
+          messages: messages.slice(1).slice(-12),
           contact: {
             name: form.get('name'),
             phone: form.get('phone'),
@@ -191,7 +192,7 @@ async function sendMessage(text: string) {
             <Box sx={{ p: 2.5, overflowY: 'auto' }}>
               <Button size="small" onClick={() => setHandoff(false)} sx={{ mb: 1 }}>← Back to chat</Button>
               <Typography variant="h6" fontWeight={900}>Talk with a real person</Typography>
-              <Typography variant="body2" color="text.secondary" mt={0.5} mb={2}>Send your details securely to the Iman admissions team through GoHighLevel.</Typography>
+              <Typography variant="body2" color="text.secondary" mt={0.5} mb={2}>Send your details to the Iman admissions team and we will call or email you back.</Typography>
               {handoffSent ? (
                 <Alert severity="success">Thank you! Admissions received your request and will follow up. For immediate help, call <a href="tel:8889914776">(888) 991-4776</a>.</Alert>
               ) : (

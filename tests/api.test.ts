@@ -9,6 +9,7 @@ for (const key of [
   'VITE_SUPABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY',
   'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'RESEND_API_KEY',
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER',
+  'OPENAI_API_KEY', 'GHL_WEBHOOK_URL',
 ]) process.env[key] = ''
 process.env.APP_URL = 'https://imantruckingschool.com'
 
@@ -98,5 +99,36 @@ describe('health', () => {
     const res = await fetch(`${base}/api/health`)
     expect(res.status).toBe(200)
     expect((await res.json()).status).toBe('ok')
+  })
+})
+
+describe('admissions chat API', () => {
+  const chat = (body: unknown) =>
+    fetch(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+  it('rejects unknown actions', async () => {
+    const res = await chat({ action: 'nope' })
+    expect(res.status).toBe(400)
+  })
+
+  it('requires a message', async () => {
+    const res = await chat({ action: 'chat', sessionId: 's1', messages: [] })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 503 when the AI is not configured', async () => {
+    const res = await chat({ action: 'chat', sessionId: 's1', messages: [{ role: 'user', content: 'hi' }] })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: 'AI chat is not configured yet.' })
+  })
+
+  it('requires a name and phone for callback requests', async () => {
+    const res = await chat({ action: 'handoff', sessionId: 's1', contact: { name: 'Ana' } })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 503 for callback requests when no channel can deliver them', async () => {
+    const res = await chat({ action: 'handoff', sessionId: 's1', contact: { name: 'Ana', phone: '555-0100' } })
+    expect(res.status).toBe(503)
   })
 })

@@ -8,6 +8,7 @@ import dotenv from 'dotenv'
 import { z } from 'zod'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
+import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptText } from './shared/admissionsChat.mjs'
 
 dotenv.config()
 
@@ -71,6 +72,11 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && twilioFro
 const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@imantruckingschool.com'
 const adminNotificationPhone = process.env.ADMIN_NOTIFICATION_PHONE || null
 const admissionsEmail = process.env.APPLICATION_EMAIL_TO || adminNotificationEmail
+
+// Staff recipients for website chatbot alerts (new conversations and
+// callback requests), so admissions can follow up on what the visitor asked.
+const chatAlertEmail = process.env.CHAT_ALERT_EMAIL || 'info@imanlogistics.com'
+const chatAlertPhone = process.env.CHAT_ALERT_PHONE || '+18889914776'
 
 const missingServiceError = 'Payments are not configured on the server. Set STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 const missingDatabaseError = 'The student portal is not configured on the server. Set SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
@@ -299,6 +305,7 @@ app.get('/api/health', (req, res) => {
       database: !!supabase,
       email: !!resend,
       sms: !!twilioClient,
+      chat: !!process.env.OPENAI_API_KEY,
   })
 })
 
@@ -1452,6 +1459,177 @@ async function handleChargeRefunded(charge) {
 
   await markRelatedRecord(payment, { registration: 'refunded', application: 'refunded' })
 }
+
+// ---------------------------------------------------------------------------
+// Website admissions chatbot. Visitors are anonymous, so requests are limited
+// per client IP, and staff alerts (email via Resend, SMS via Twilio) are sent
+// once per chat session plus on every callback request, under an hourly cap
+// so a scripted client cannot flood the admissions inbox or phone.
+// ---------------------------------------------------------------------------
+
+const CHAT_RATE_LIMIT = 15
+const chatRateBuckets = new Map()
+const CHAT_ALERT_LIMIT_PER_HOUR = 40
+let chatAlertWindow = { start: 0, count: 0 }
+const alertedChatSessions = new Set()
+
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  return forwarded || req.socket.remoteAddress || 'unknown'
+}
+
+function chatRateLimit(req, res, next) {
+  const now = Date.now()
+  const key = clientIp(req)
+  const bucket = chatRateBuckets.get(key)
+  if (!bucket || now - bucket.start >= RATE_WINDOW_MS) {
+    chatRateBuckets.set(key, { start: now, count: 1 })
+    if (chatRateBuckets.size > 10000) {
+      for (const [k, value] of chatRateBuckets) if (now - value.start >= RATE_WINDOW_MS) chatRateBuckets.delete(k)
+    }
+    return next()
+  }
+  bucket.count += 1
+  if (bucket.count > CHAT_RATE_LIMIT) {
+    return res.status(429).json({ error: 'Too many messages. Wait a minute and try again.' })
+  }
+  next()
+}
+
+function takeChatAlertSlot() {
+  const now = Date.now()
+  if (now - chatAlertWindow.start >= 60 * 60 * 1000) chatAlertWindow = { start: now, count: 0 }
+  if (chatAlertWindow.count >= CHAT_ALERT_LIMIT_PER_HOUR) return false
+  chatAlertWindow.count += 1
+  return true
+}
+
+function chatAlertEmailHtml({ heading, intro, contact, messages }) {
+  const rows = contact
+    ? [['Name', contact.name], ['Phone', contact.phone], ['Email', contact.email || '—'], ['Request', contact.question || '—']]
+        .map(([label, value]) => `<p style="margin: 6px 0;"><strong>${label}:</strong> ${escapeHtml(value)}</p>`).join('')
+    : ''
+  const transcript = messages.length
+    ? messages.map(message => `
+        <p style="margin: 10px 0;"><strong>${message.role === 'assistant' ? 'Assistant' : 'Visitor'}:</strong><br>
+        ${escapeHtml(message.content).replace(/\n/g, '<br>')}</p>`).join('')
+    : '<p>No chat messages were sent before this request.</p>'
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #08085f;">${heading}</h2>
+      <p>${intro}</p>
+      ${rows ? `<div style="background: #f5f7fb; padding: 16px 20px; border-radius: 8px; margin: 16px 0;">${rows}</div>` : ''}
+      <h3 style="color: #08085f;">Conversation</h3>
+      ${transcript}
+    </div>
+  `
+}
+
+// Best-effort: returns how many channels (email, SMS) accepted the alert.
+async function sendChatAlert({ subject, html, text, sms }) {
+  let delivered = 0
+  if (resend) {
+    try {
+      const { error } = await resend.emails.send({ from: emailFrom, to: chatAlertEmail, subject, html, text })
+      if (error) throw error
+      delivered += 1
+    } catch (error) {
+      console.error('Failed to send chat alert email:', error)
+    }
+  }
+  if (twilioClient && chatAlertPhone) {
+    try {
+      await twilioClient.messages.create({ to: chatAlertPhone, from: twilioFromNumber, body: sms })
+      delivered += 1
+    } catch (error) {
+      console.error('Failed to send chat alert SMS:', error)
+    }
+  }
+  return delivered
+}
+
+app.post('/api/chat', chatRateLimit, async (req, res) => {
+  const body = req.body || {}
+  const sessionId = cleanText(body.sessionId, 100)
+
+  if (body.action === 'handoff') {
+    const contact = cleanContact(body.contact)
+    if (!contact.name || !contact.phone) return res.status(400).json({ error: 'Name and phone number are required.' })
+
+    const messages = cleanMessages(body.messages)
+    let delivered = 0
+
+    if (process.env.GHL_WEBHOOK_URL) {
+      try {
+        const response = await fetch(process.env.GHL_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 'Iman website AI chat', sessionId, ...contact, submittedAt: new Date().toISOString() }),
+        })
+        if (response.ok) delivered += 1
+        else console.error('GoHighLevel webhook rejected chat handoff:', response.status)
+      } catch (error) {
+        console.error('Failed to send chat handoff to GoHighLevel:', error)
+      }
+    }
+
+    if (takeChatAlertSlot()) {
+      delivered += await sendChatAlert({
+        subject: `Callback request from ${contact.name} (website chat)`,
+        html: chatAlertEmailHtml({
+          heading: 'Callback request from the website chat',
+          intro: 'A visitor asked admissions to follow up. Please contact them.',
+          contact,
+          messages,
+        }),
+        text: `Callback request from ${contact.name}, ${contact.phone}${contact.email ? `, ${contact.email}` : ''}\n\n${contact.question}\n\n${transcriptText(messages)}`,
+        sms: `Iman chat: callback request from ${contact.name}, ${contact.phone}${contact.email ? `, ${contact.email}` : ''}. ${contact.question}`.slice(0, 320),
+      })
+    }
+
+    if (!delivered) {
+      return res.status(503).json({ error: 'Admissions could not receive the request right now.' })
+    }
+    return res.json({ ok: true })
+  }
+
+  if (body.action !== 'chat') return res.status(400).json({ error: 'Unknown action.' })
+
+  const messages = cleanMessages(body.messages)
+  if (!messages.length) return res.status(400).json({ error: 'Please enter a message.' })
+
+  try {
+    const result = await generateChatReply(messages, sessionId, {
+      apiKey: process.env.OPENAI_API_KEY,
+      model: process.env.OPENAI_MODEL,
+    })
+    if (result.error) return res.status(result.status).json({ error: result.error })
+
+    // Tell staff about each new conversation once, with the visitor's
+    // question and the assistant's answer, so they can follow up.
+    if (sessionId && !alertedChatSessions.has(sessionId) && takeChatAlertSlot()) {
+      alertedChatSessions.add(sessionId)
+      if (alertedChatSessions.size > 5000) alertedChatSessions.clear()
+      const conversation = [...messages, { role: 'assistant', content: result.reply }]
+      const question = messages.filter(message => message.role === 'user').at(-1)?.content || ''
+      void sendChatAlert({
+        subject: 'New website chat conversation',
+        html: chatAlertEmailHtml({
+          heading: 'New website chat conversation',
+          intro: 'A visitor started a conversation with the admissions chatbot.',
+          messages: conversation,
+        }),
+        text: transcriptText(conversation),
+        sms: `Iman chat: new visitor asked "${question}"`.slice(0, 320),
+      })
+    }
+
+    res.json({ reply: result.reply })
+  } catch (error) {
+    console.error('Chat request failed:', error)
+    res.status(502).json({ error: 'The AI assistant is temporarily unavailable.' })
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Start-up: listen only when this file is executed directly.
