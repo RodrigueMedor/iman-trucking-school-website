@@ -75,7 +75,7 @@ describe('status model', () => {
 })
 
 describe('signUpSchema', () => {
-  const valid = { firstName: 'Ann', lastName: 'Able', email: 'ann@example.com', password: 'correct-horse', confirmPassword: 'correct-horse' }
+  const valid = { firstName: 'Ann', lastName: 'Able', email: 'ann@example.com', cdlEligibility: 'us_citizen', password: 'correct-horse', confirmPassword: 'correct-horse' }
   it('accepts a valid account', () => {
     expect(signUpSchema.safeParse(valid).success).toBe(true)
   })
@@ -100,6 +100,16 @@ describe('signUpSchema', () => {
     const result = signUpSchema.safeParse({ ...valid, email: '  Student@Example.COM  ' })
     expect(result.success).toBe(true)
     if (result.success) expect(result.data.email).toBe('student@example.com')
+  })
+
+  it.each(['us_citizen', 'lawful_permanent_resident'])('accepts eligible CDL category %s', cdlEligibility => {
+    expect(signUpSchema.safeParse({ ...valid, cdlEligibility }).success).toBe(true)
+  })
+
+  it.each(['other_status', 'not_sure'])('blocks account creation for %s', cdlEligibility => {
+    const result = signUpSchema.safeParse({ ...valid, cdlEligibility })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(fieldErrors(result.error).cdlEligibility).toBeTruthy()
   })
 })
 

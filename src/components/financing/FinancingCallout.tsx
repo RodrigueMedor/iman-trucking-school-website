@@ -88,7 +88,7 @@ export function FinancingCallout({
         <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: hero ? 'rgba(7,26,51,.055)' : '#f3f6fa', border: 1, borderColor: 'divider' }}>
           <Typography fontWeight={900} color="primary.main">Start with your IMAN student account</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5, lineHeight: 1.6 }}>
-            Create an account or sign in, then begin your CDL Training application before continuing securely to {FINANCING_PARTNER}.
+            Create an account or sign in, confirm your current CDL eligibility category, then begin your CDL Training application before continuing securely to {FINANCING_PARTNER}.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button

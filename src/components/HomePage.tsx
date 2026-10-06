@@ -12,12 +12,14 @@ import {
 } from '@mui/material'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded'
+import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import EngineeringRoundedIcon from '@mui/icons-material/EngineeringRounded'
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
+import QuizRoundedIcon from '@mui/icons-material/QuizRounded'
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded'
@@ -73,13 +75,6 @@ function openEnrollment() {
 
 export function HomePage() {
   const { content } = useContent()
-  const overview = content('home', 'overview', {
-    section_label: 'A better way to begin your driving career',
-    title: 'Training built for the road ahead.',
-    body: 'At Iman Trucking School, we combine practical Class A CDL instruction, experienced guidance, and personalized support to help students prepare for a professional career in trucking.',
-    button_text: 'Request information',
-    button_url: '/contact-form/',
-  })
   const why = content('home', 'why-choose', {
     section_label: 'Why choose Iman',
     title: 'Everything you need to train with confidence.',
@@ -122,70 +117,33 @@ export function HomePage() {
   }))
   return (
     <>
-      <Box component="section" sx={{ bgcolor: 'white', py: { xs: 8, md: 12 } }}>
+      <Box component="section" sx={{ position: 'relative', bgcolor: 'white', py: { xs: 8, md: 11 }, overflow: 'hidden' }}>
+        <Box aria-hidden="true" sx={{ position: 'absolute', width: 360, height: 360, borderRadius: '50%', right: -180, top: -180, bgcolor: 'rgba(214,31,44,.045)' }} />
         <Container>
-          <Grid container spacing={{ xs: 5, md: 8 }} alignItems="center">
-            <Grid size={{ xs: 12, md: 5 }}>
-              <Chip
-                icon={<VerifiedRoundedIcon />}
-                label={overview.section_label}
-                color="secondary"
-                variant="outlined"
-                sx={{ mb: 2.5, fontWeight: 850, bgcolor: 'rgba(214,31,44,.04)' }}
-              />
-              <Typography component="h2" variant="h2" sx={{ fontSize: { xs: '2.25rem', md: '3.55rem' }, color: 'primary.main' }}>
-                {overview.title}
-              </Typography>
-              <Typography sx={{ mt: 2.5, color: 'text.secondary', fontSize: '1.05rem' }}>
-                {overview.body}
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} mt={3.5}>
-                <Button onClick={openEnrollment} variant="contained" color="secondary" endIcon={<ArrowForwardRoundedIcon />}>
-                  {overview.button_text}
-                </Button>
-                <Button component={RouterLink} to="/our-program/" variant="outlined">
-                  View our program
-                </Button>
-              </Stack>
-            </Grid>
-            <Grid size={{ xs: 12, md: 7 }}>
-              <Box
-                sx={{
-                  position: 'relative',
-                  minHeight: { xs: 390, sm: 500 },
-                  borderRadius: { xs: 3, md: 5 },
-                  backgroundImage: 'linear-gradient(180deg, transparent 48%, rgba(7,26,51,.84)), url(/images/home-hero-2.jpg)',
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  boxShadow: '0 30px 70px rgba(7,26,51,.18)',
-                  overflow: 'hidden',
-                }}
-              >
-                <Paper
-                  elevation={0}
-                  sx={{
-                    position: 'absolute',
-                    right: { xs: 16, sm: 28 },
-                    bottom: { xs: 16, sm: 28 },
-                    left: { xs: 16, sm: 'auto' },
-                    width: { sm: 310 },
-                    p: 2.25,
-                    color: 'white',
-                    bgcolor: 'rgba(7,26,51,.86)',
-                    border: '1px solid rgba(255,255,255,.18)',
-                    backdropFilter: 'blur(16px)',
-                  }}
-                >
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Avatar sx={{ bgcolor: 'secondary.main' }}><SchoolRoundedIcon /></Avatar>
-                    <Box>
-                      <Typography fontWeight={900}>Career-focused training</Typography>
-                      <Typography variant="body2" color="rgba(255,255,255,.7)">Learn skills you can take to the road.</Typography>
-                    </Box>
+          <Box maxWidth={790} mb={{ xs: 4.5, md: 6 }}>
+            <Chip icon={<VerifiedRoundedIcon />} label="Choose your next step" color="secondary" variant="outlined" sx={{ mb: 2.5, fontWeight: 850, bgcolor: 'rgba(214,31,44,.04)' }} />
+            <Typography component="h2" variant="h2" sx={{ fontSize: { xs: '2.25rem', md: '3.55rem' }, color: 'primary.main' }}>A clear path starts with the right first move.</Typography>
+            <Typography sx={{ mt: 2.25, color: 'text.secondary', fontSize: '1.05rem', maxWidth: 700 }}>Whether you are comparing programs, planning how to pay, or ready to move forward, start with the information that matters most to you.</Typography>
+          </Box>
+          <Grid container spacing={2.25}>
+            {[
+              { icon: SchoolRoundedIcon, number: '01', eyebrow: 'Understand the training', title: 'Explore Class A CDL', text: 'See the skills, schedule, and hands-on experience included in the program.', action: 'View the program', to: '/class-a-cdl/' },
+              { icon: AccountBalanceWalletRoundedIcon, number: '02', eyebrow: 'Plan with confidence', title: 'Review tuition & financing', text: 'Learn about program costs and the financing path available to qualified students.', action: 'See tuition options', to: '/tuition-financing/' },
+              { icon: QuizRoundedIcon, number: '03', eyebrow: 'Find your starting point', title: 'Take the readiness check', text: 'Answer a few questions and get a clearer picture of your next CDL step.', action: 'Start the assessment', to: '/cdl-assessment/' },
+            ].map(({ icon: Icon, number, eyebrow, title, text, action, to }, index) => (
+              <Grid key={title} size={{ xs: 12, md: 4 }}>
+                <Card sx={{ height: '100%', p: { xs: 3, md: 3.5 }, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: index === 2 ? 'rgba(214,31,44,.35)' : 'divider', bgcolor: index === 2 ? '#fffafb' : 'white', boxShadow: index === 2 ? '0 22px 55px rgba(169,13,24,.12)' : '0 14px 40px rgba(7,26,51,.06)', transition: 'transform .25s ease, box-shadow .25s ease', '&:hover': { transform: 'translateY(-5px)', boxShadow: '0 24px 55px rgba(7,26,51,.12)' } }}>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" mb={3}>
+                    <Avatar variant="rounded" sx={{ width: 54, height: 54, bgcolor: index === 2 ? 'secondary.main' : 'rgba(7,26,51,.07)', color: index === 2 ? 'white' : 'primary.main' }}><Icon /></Avatar>
+                    <Typography fontWeight={950} color="rgba(7,26,51,.12)" fontSize="2rem">{number}</Typography>
                   </Stack>
-                </Paper>
-              </Box>
-            </Grid>
+                  <Typography variant="overline" color="secondary.main" fontWeight={900} letterSpacing=".08em">{eyebrow}</Typography>
+                  <Typography component="h3" variant="h5" color="primary.main" fontWeight={900} mt={.6}>{title}</Typography>
+                  <Typography color="text.secondary" mt={1.25} mb={3}>{text}</Typography>
+                  <Button component={RouterLink} to={to} variant={index === 2 ? 'contained' : 'text'} color={index === 2 ? 'secondary' : 'primary'} endIcon={<ArrowForwardRoundedIcon />} sx={{ mt: 'auto', px: index === 2 ? 2.25 : 0 }}>{action}</Button>
+                </Card>
+              </Grid>
+            ))}
           </Grid>
         </Container>
       </Box>

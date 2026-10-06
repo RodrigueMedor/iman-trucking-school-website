@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  Alert, Box, Button, Card, CardContent, Container, Divider, IconButton, InputAdornment, Link as MuiLink,
-  Stack, Tab, Tabs, TextField, Typography,
+  Alert, Box, Button, Card, CardContent, Container, Divider, FormControl, FormHelperText, IconButton, InputAdornment, InputLabel, Link as MuiLink,
+  MenuItem, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
@@ -86,7 +86,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
   const next = safeNextPath(params.get('next'))
   const { configured, loading, profileReady, session, profile, signIn, signUp, verifyEmail, resendVerification, resetPassword, updatePassword, signOut } = useAuth()
 
-  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' })
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', cdlEligibility: '', password: '', confirmPassword: '' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -171,6 +171,7 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
         lastName: parsed.data.lastName,
         email: parsed.data.email,
         password: parsed.data.password,
+        cdlEligibility: parsed.data.cdlEligibility,
         redirectTo: `${window.location.origin}${withNext('/portal/verify-email')}`,
       })
       if (result.error) setFormError(result.error)
@@ -358,12 +359,33 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
       <Box component="form" noValidate onSubmit={registering ? onRegister : onSignIn}>
         <Stack spacing={2.5}>
           {registering && (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField fullWidth name="firstName" label="First name" autoComplete="given-name" value={form.firstName}
-                onChange={e => set('firstName')(e.target.value)} error={Boolean(errors.firstName)} helperText={errors.firstName} />
-              <TextField fullWidth name="lastName" label="Last name" autoComplete="family-name" value={form.lastName}
-                onChange={e => set('lastName')(e.target.value)} error={Boolean(errors.lastName)} helperText={errors.lastName} />
-            </Stack>
+            <>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField fullWidth name="firstName" label="First name" autoComplete="given-name" value={form.firstName}
+                  onChange={e => set('firstName')(e.target.value)} error={Boolean(errors.firstName)} helperText={errors.firstName} />
+                <TextField fullWidth name="lastName" label="Last name" autoComplete="family-name" value={form.lastName}
+                  onChange={e => set('lastName')(e.target.value)} error={Boolean(errors.lastName)} helperText={errors.lastName} />
+              </Stack>
+              <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
+                Iman student accounts are currently available only to U.S. citizens and lawful permanent residents. You may be asked to provide supporting documentation during enrollment.
+              </Alert>
+              <FormControl fullWidth required error={Boolean(errors.cdlEligibility)}>
+                <InputLabel id="cdl-eligibility-label">Citizenship or residency status</InputLabel>
+                <Select
+                  labelId="cdl-eligibility-label"
+                  name="cdlEligibility"
+                  label="Citizenship or residency status"
+                  value={form.cdlEligibility}
+                  onChange={event => set('cdlEligibility')(event.target.value)}
+                >
+                  <MenuItem value="us_citizen">I am a U.S. citizen</MenuItem>
+                  <MenuItem value="lawful_permanent_resident">I am a lawful permanent resident (green-card holder)</MenuItem>
+                  <MenuItem value="other_status">I have another immigration status</MenuItem>
+                  <MenuItem value="not_sure">I am not sure</MenuItem>
+                </Select>
+                <FormHelperText>{errors.cdlEligibility || 'Select the option that applies to you.'}</FormHelperText>
+              </FormControl>
+            </>
           )}
           <TextField fullWidth required name="email" label="Email" type="email" autoComplete="email" value={form.email}
             slotProps={{ htmlInput: { inputMode: 'email', spellCheck: false, maxLength: 254 } }}

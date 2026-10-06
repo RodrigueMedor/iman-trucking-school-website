@@ -25,8 +25,8 @@ export function HomeHero() {
     section_label: 'Orlando’s career-focused CDL school',
     title: 'Your road to a professional driving career.',
     body: 'Build real-world driving skills with experienced instructors, hands-on Class A CDL training, and support from enrollment through graduation.',
-    button_text: 'Start your application',
-    button_url: '/contact-form/',
+    button_text: 'Check your CDL readiness',
+    button_url: '/cdl-assessment/',
   })
   const [activeVideo, setActiveVideo] = useState(0)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
@@ -105,8 +105,8 @@ export function HomeHero() {
             {hero.body}
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button component={RouterLink} to={hero.button_url || '/contact-form/'} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px rgba(214,31,44,.3)' }}>
-              {hero.button_text}
+            <Button component={RouterLink} to="/cdl-assessment/" variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px rgba(214,31,44,.3)' }}>
+              Check your CDL readiness
             </Button>
             <Button component={RouterLink} to="/our-program/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>
               Explore the program

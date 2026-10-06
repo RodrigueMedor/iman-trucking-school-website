@@ -6,7 +6,14 @@ import { setUpStudentAccount } from '../portal/api'
 
 type LocalRole = 'super_admin' | 'instructor' | 'student'
 type Profile = { id: string; full_name: string; role: LocalRole | 'admin' | 'employee'; active: boolean }
-export type SignUpInput = { firstName: string; lastName: string; email: string; password: string; redirectTo: string }
+export type SignUpInput = {
+  firstName: string
+  lastName: string
+  email: string
+  password: string
+  redirectTo: string
+  cdlEligibility: 'us_citizen' | 'lawful_permanent_resident' | 'other_status' | 'not_sure'
+}
 export type VerificationResult = { error?: string; verified?: boolean }
 type AuthValue = {
   configured: boolean
@@ -165,8 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfileFor(data.user.id)
       return null
     },
-    signUp: async ({ firstName, lastName, email, password, redirectTo }) => {
+    signUp: async ({ firstName, lastName, email, password, redirectTo, cdlEligibility }) => {
       if (!supabase) return { error: 'Account creation is not available right now. Please contact admissions.' }
+      if (!['us_citizen', 'lawful_permanent_resident'].includes(cdlEligibility)) {
+        return { error: 'Please contact admissions to confirm CDL eligibility before creating an account.' }
+      }
       const { data, error } = await supabase.auth.signUp({
         email,
         password,

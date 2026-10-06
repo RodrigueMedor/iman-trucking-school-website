@@ -80,9 +80,25 @@ export const signUpSchema = z.object({
   firstName: required('First name'),
   lastName: required('Last name'),
   email: emailSchema,
+  cdlEligibility: z.enum(['us_citizen', 'lawful_permanent_resident', 'other_status', 'not_sure'], {
+    message: 'Select the option that best describes you',
+  }),
   password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`).max(72, 'Use at most 72 characters'),
   confirmPassword: z.string(),
-}).refine(value => value.password === value.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' })
+}).superRefine((value, context) => {
+  if (value.password !== value.confirmPassword) {
+    context.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match' })
+  }
+  if (value.cdlEligibility === 'other_status' || value.cdlEligibility === 'not_sure') {
+    context.addIssue({
+      code: 'custom',
+      path: ['cdlEligibility'],
+      message: value.cdlEligibility === 'not_sure'
+        ? 'Please contact admissions before creating an account so we can help confirm your eligibility.'
+        : 'Only U.S. citizens and lawful permanent residents can create an Iman student account. Contact admissions if you believe this is incorrect.',
+    })
+  }
+})
 export type SignUpFormInput = z.infer<typeof signUpSchema>
 
 export const verificationCodeSchema = z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from your email')
