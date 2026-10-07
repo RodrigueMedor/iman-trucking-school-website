@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_VERSION: '22'
+      # Hostinger also deploys by pulling from GitHub, so the SSH deploy
+      # below runs only when its secrets are configured.
+      DEPLOY_CONFIGURED: ${{ secrets.HOSTINGER_SSH_KEY != '' && secrets.HOSTINGER_HOST != '' && secrets.HOSTINGER_USER != '' && secrets.HOSTINGER_REMOTE_PATH != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,7 +29,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Test
+        run: npm test
+
+      - name: Skip SSH deploy
+        if: env.DEPLOY_CONFIGURED != 'true'
+        run: echo "Hostinger SSH secrets are not set; skipping SSH deploy (Hostinger deploys from GitHub)."
+
       - name: Setup SSH key
+        if: env.DEPLOY_CONFIGURED == 'true'
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
           HOST: ${{ secrets.HOSTINGER_HOST }}
@@ -42,6 +53,7 @@ jobs:
           # OpenSSH automatically uses ~/.ssh/id_rsa for the following steps.
 
       - name: Deploy files with rsync
+        if: env.DEPLOY_CONFIGURED == 'true'
         env:
           HOST: ${{ secrets.HOSTINGER_HOST }}
           USER: ${{ secrets.HOSTINGER_USER }}
@@ -59,6 +71,7 @@ jobs:
           rsync -avz --delete "${RSYNC_EXCLUDES[@]}" -e "ssh $SSH_OPTS" ./ "$USER@$HOST:$REMOTE_PATH"
 
       - name: Run remote install & start commands
+        if: env.DEPLOY_CONFIGURED == 'true'
         env:
           HOST: ${{ secrets.HOSTINGER_HOST }}
           USER: ${{ secrets.HOSTINGER_USER }}
@@ -92,6 +105,7 @@ jobs:
           EOF
 
       - name: Verify deployment (health)
+        if: env.DEPLOY_CONFIGURED == 'true'
         env:
           HOST: ${{ secrets.HOSTINGER_HOST }}
           PORT: ${{ secrets.HOSTINGER_PORT }}
