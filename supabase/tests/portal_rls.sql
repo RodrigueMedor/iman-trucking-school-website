@@ -371,5 +371,28 @@ begin
   assert ok, 'dispatcher payment type no longer allowed';
 end $$;
 
+-- ------------------------------------------------- super admin is one email
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, created_at, updated_at)
+values
+  ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'Info@ImanLogistics.com', '{"full_name":"Iman"}', '{}', now(), now(), now()),
+  ('00000000-0000-0000-0000-0000000000f7', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rodriguemedor@yahoo.fr', '{"full_name":"Old"}', '{"role":"super_admin"}', now(), now(), now());
+
+do $$
+declare ok boolean := false;
+begin
+  assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000f6') = 'super_admin',
+    'info@imanlogistics.com is super_admin';
+  assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000f7') <> 'super_admin',
+    'old email and app_metadata cannot grant super_admin';
+  begin
+    update public.profiles set role = 'super_admin' where id = '00000000-0000-0000-0000-0000000000c3';
+  exception when insufficient_privilege then ok := true;
+  end;
+  assert ok, 'privileged writers cannot make another account super_admin';
+  update auth.users set email = 'moved@test.local' where id = '00000000-0000-0000-0000-0000000000f6';
+  assert (select role from public.profiles where id = '00000000-0000-0000-0000-0000000000f6') <> 'super_admin',
+    'super_admin is lost when the email changes';
+end $$;
+
 \echo 'ALL PORTAL RLS TESTS PASSED'
 rollback;

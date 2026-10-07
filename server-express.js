@@ -943,7 +943,8 @@ app.patch('/api/me/student', studentOnly, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const PORTAL_ROLES = new Set(['student', 'super_admin', 'instructor'])
-const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || process.env.VITE_SUPER_ADMIN_EMAIL || 'rodriguemedor@yahoo.fr').trim().toLowerCase()
+// The only account allowed to be super admin (also enforced in the database).
+const SUPER_ADMIN_EMAIL = 'info@imanlogistics.com'
 
 app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => {
   try {
@@ -1014,7 +1015,7 @@ app.post('/api/admin/instructors', requireUser, rateLimit, async (req, res) => {
       .select('role, active')
       .eq('id', req.user.id)
       .maybeSingle()
-    if (!caller?.active || caller.role !== 'super_admin') {
+    if (!caller?.active || caller.role !== 'super_admin' || req.user.email.trim().toLowerCase() !== SUPER_ADMIN_EMAIL) {
       return res.status(403).json({ error: 'Only super administrators can create instructor accounts.' })
     }
 

@@ -1,6 +1,5 @@
-export const SUPER_ADMIN_EMAIL = (
-  import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'rodriguemedor@yahoo.fr'
-).trim().toLowerCase()
+/** The only account allowed to be super admin. Not configurable, by design. */
+export const SUPER_ADMIN_EMAIL = 'info@imanlogistics.com'
 
 /** Roles allowed into the admin area. Every other account belongs in the student portal. */
 export function isStaffRole(role?: string | null) {

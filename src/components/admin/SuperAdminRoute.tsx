@@ -1,7 +1,7 @@
 import { Alert, Box, CircularProgress, Container, Paper, Typography } from '@mui/material'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { isStaffRole } from '../../lib/adminAuth'
+import { isStaffRole, isSuperAdminEmail } from '../../lib/adminAuth'
 
 export function SuperAdminRoute() {
   const { configured, loading, profileReady, session, profile } = useAuth()
@@ -12,6 +12,6 @@ export function SuperAdminRoute() {
   if (!profileReady) return <Box minHeight="70vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>
   // Only staff belong in the admin area; the portal explains any other account problem.
   if (!isStaffRole(profile?.role)) return <Navigate to="/portal/" replace />
-  if (!profile?.active || profile.role !== 'super_admin') return <Container sx={{ py: 12 }}><Paper sx={{ p: 5 }}><Typography variant="h4" fontWeight={900}>Access restricted</Typography><Typography mt={1}>Only super administrators can access this area.</Typography></Paper></Container>
+  if (!profile?.active || profile.role !== 'super_admin' || !isSuperAdminEmail(session.user.email)) return <Container sx={{ py: 12 }}><Paper sx={{ p: 5 }}><Typography variant="h4" fontWeight={900}>Access restricted</Typography><Typography mt={1}>Only super administrators can access this area.</Typography></Paper></Container>
   return <Outlet />
 }
