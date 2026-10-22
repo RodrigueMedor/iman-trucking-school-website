@@ -6,7 +6,7 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { useContent } from '../contexts/ContentContext'
-import { FinancingCallout } from './financing/FinancingCallout'
+import { HomeFinancing } from './financing/HomeFinancing'
 
 const trainingVideos = [
   {
@@ -121,10 +121,8 @@ export function HomeHero() {
             ))}
           </Stack>
         </Box>
-        <Box sx={{ width: { xs: '100%', lg: 410 }, flex: { lg: '0 0 410px' } }}>
-          <FinancingCallout variant="hero" title="Need Help Paying for CDL Training?" />
-        </Box>
         </Stack>
+        <HomeFinancing />
         <Stack
           className="notranslate"
           translate="no"
