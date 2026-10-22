@@ -9,6 +9,7 @@ import AssignmentRounded from '@mui/icons-material/AssignmentRounded'
 import FolderRounded from '@mui/icons-material/FolderRounded'
 import EventRounded from '@mui/icons-material/EventRounded'
 import PersonRounded from '@mui/icons-material/PersonRounded'
+import PaymentsRounded from '@mui/icons-material/PaymentsRounded'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
 import MenuRounded from '@mui/icons-material/MenuRounded'
 import HomeRounded from '@mui/icons-material/HomeRounded'
@@ -23,6 +24,7 @@ const NAV = [
   { label: 'Apply for CDL Training', to: '/portal/apply/training', icon: <LocalShippingRounded /> },
   { label: 'Apply for CDL Assessment', to: '/portal/apply/assessment', icon: <FactCheckRounded /> },
   { label: 'My Applications', to: '/portal/applications/', icon: <AssignmentRounded /> },
+  { label: 'Tuition & Payments', to: '/portal/billing/', icon: <PaymentsRounded /> },
   { label: 'Documents', to: '/portal/documents/', icon: <FolderRounded /> },
   { label: 'Schedule', to: '/portal/schedule/', icon: <EventRounded /> },
   { label: 'Profile & Account', to: '/portal/profile/', icon: <PersonRounded /> },

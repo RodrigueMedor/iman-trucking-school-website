@@ -8,12 +8,17 @@ import { supabase } from '../../lib/supabase'
 import { toMessage } from '../../portal/api'
 import { formatDate, formatDateTime } from '../../portal/ui'
 
-const STATUSES = ['REFERRED', 'STUDENT_REPORTED_SUBMITTED', 'FOLLOW_UP_NEEDED', 'CLOSED'] as const
+const STATUSES = ['REFERRED', 'STUDENT_REPORTED_SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PARTIALLY_APPROVED', 'DECLINED', 'FUNDED', 'FOLLOW_UP_NEEDED', 'CLOSED'] as const
 type ReferralStatus = (typeof STATUSES)[number]
 
 const STATUS_META: Record<ReferralStatus, { label: string; color: 'info' | 'success' | 'warning' | 'default' }> = {
   REFERRED: { label: 'Sent to Liberty', color: 'info' },
   STUDENT_REPORTED_SUBMITTED: { label: 'Student reports submitted', color: 'success' },
+  UNDER_REVIEW: { label: 'Under lender review', color: 'info' },
+  APPROVED: { label: 'Approved', color: 'success' },
+  PARTIALLY_APPROVED: { label: 'Partially approved', color: 'warning' },
+  DECLINED: { label: 'Declined', color: 'default' },
+  FUNDED: { label: 'Funded', color: 'success' },
   FOLLOW_UP_NEEDED: { label: 'Follow-up needed', color: 'warning' },
   CLOSED: { label: 'Closed', color: 'default' },
 }
@@ -27,6 +32,8 @@ type Student = {
 type Referral = {
   id: string; status: ReferralStatus; referral_count: number; first_referred_at: string; last_referred_at: string
   staff_notes: string; student: Student | null
+  approved_amount_cents: number | null; funded_amount_cents: number | null; tuition_account_id: string | null
+  account: { tuition_cents: number; financing_cents: number } | null
   application: { id: string; reference_no: string; status: string; created_at: string } | null
 }
 
@@ -39,6 +46,8 @@ export function FinancingReferrals() {
   const [selected, setSelected] = useState<Referral | null>(null)
   const [status, setStatus] = useState<ReferralStatus>('REFERRED')
   const [notes, setNotes] = useState('')
+  const [approvedAmount, setApprovedAmount] = useState('')
+  const [fundedAmount, setFundedAmount] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -48,7 +57,7 @@ export function FinancingReferrals() {
     setLoading(true)
     const { data, error: queryError } = await supabase
       .from('cdl_financing_referrals')
-      .select('*, student:cdl_students!student_id(*), application:cdl_class_applications!application_id(id, reference_no, status, created_at)')
+      .select('*, student:cdl_students!student_id(*), application:cdl_class_applications!application_id(id, reference_no, status, created_at), account:cdl_tuition_accounts!tuition_account_id(tuition_cents, financing_cents)')
       .order('last_referred_at', { ascending: false })
     if (queryError) setError(toMessage(queryError))
     else setRows((data ?? []) as unknown as Referral[])
@@ -61,6 +70,8 @@ export function FinancingReferrals() {
     setSelected(row)
     setStatus(row.status)
     setNotes(row.staff_notes)
+    setApprovedAmount(row.approved_amount_cents == null ? '' : String(row.approved_amount_cents / 100))
+    setFundedAmount(row.funded_amount_cents == null ? '' : String(row.funded_amount_cents / 100))
     setError('')
   }
 
@@ -68,10 +79,16 @@ export function FinancingReferrals() {
     if (!supabase || !selected) return
     setSaving(true)
     const { data: auth } = await supabase.auth.getUser()
+    const approvedCents = approvedAmount === '' ? null : Math.round(Number(approvedAmount) * 100)
+    const fundedCents = fundedAmount === '' ? null : Math.round(Number(fundedAmount) * 100)
+    if ((approvedCents != null && (!Number.isInteger(approvedCents) || approvedCents < 0)) || (fundedCents != null && (!Number.isInteger(fundedCents) || fundedCents < 0))) { setSaving(false); return setError('Enter valid financing amounts.') }
+    if (status === 'FUNDED' && fundedCents == null) { setSaving(false); return setError('Enter the funded amount before marking financing as funded.') }
+    if (status === 'FUNDED' && selected.account && fundedCents! > selected.account.tuition_cents) { setSaving(false); return setError('The funded amount cannot exceed the tuition on this account.') }
     const { error: updateError } = await supabase.from('cdl_financing_referrals').update({
-      status, staff_notes: notes.trim(), updated_by: auth.user?.id ?? null,
+      status, staff_notes: notes.trim(), approved_amount_cents: approvedCents, funded_amount_cents: fundedCents, updated_by: auth.user?.id ?? null,
     }).eq('id', selected.id)
     setSaving(false)
+    // The database applies a FUNDED amount to the linked tuition balance.
     if (updateError) return setError(toMessage(updateError))
     setSelected(null)
     await load()
@@ -129,6 +146,13 @@ export function FinancingReferrals() {
               <Detail label="Training application" value={selected.application ? `${selected.application.reference_no} · ${selected.application.status}` : 'Not started'} />
             </Box>
             <FormControl fullWidth><InputLabel>Referral status</InputLabel><Select value={status} label="Referral status" onChange={event => setStatus(event.target.value as ReferralStatus)}>{STATUSES.map(value => <MenuItem key={value} value={value}>{STATUS_META[value].label}</MenuItem>)}</Select></FormControl>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField fullWidth label="Approved amount (USD)" type="number" value={approvedAmount} onChange={event => setApprovedAmount(event.target.value)} inputProps={{ min: 0, step: '.01' }} />
+              <TextField fullWidth label="Funded amount (USD)" type="number" value={fundedAmount} onChange={event => setFundedAmount(event.target.value)} inputProps={{ min: 0, step: '.01' }}
+                helperText={selected.account
+                  ? `Applied to the tuition balance only when the status is Funded (tuition ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(selected.account.tuition_cents / 100)}).`
+                  : 'No tuition account yet. A funded amount is applied when admissions creates one.'} />
+            </Stack>
             <TextField label="Staff follow-up notes" multiline minRows={4} value={notes} onChange={event => setNotes(event.target.value)} inputProps={{ maxLength: 4000 }} />
           </Stack>}
         </DialogContent>

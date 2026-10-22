@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
-import { EMAIL_RATE_LIMIT_MESSAGE, isEmailRateLimited } from '../portal/errors'
+import { EMAIL_RATE_LIMIT_MESSAGE, EMAIL_SEND_FAILED_MESSAGE, isEmailRateLimited, isEmailSendFailure } from '../portal/errors'
 import { setUpStudentAccount } from '../portal/api'
 
 type LocalRole = 'super_admin' | 'instructor' | 'student'
@@ -187,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       if (error) {
         if (isEmailRateLimited(error)) return { error: EMAIL_RATE_LIMIT_MESSAGE }
+        if (isEmailSendFailure(error)) return { error: EMAIL_SEND_FAILED_MESSAGE }
         if (/already registered|already exists/i.test(error.message)) return { error: 'An account with this email already exists. Sign in instead.' }
         if (/password/i.test(error.message)) return { error: error.message }
         return { error: 'Your account could not be created. Please try again.' }
@@ -221,6 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.resend({ type: 'signup', email })
       if (!error) return null
       if (isEmailRateLimited(error) || error.status === 429) return 'Please wait before requesting another code.'
+      if (isEmailSendFailure(error)) return 'We couldn\'t send a new code right now. Please try again later or contact admissions.'
       return 'We could not send another code. Please try again in a few minutes.'
     },
     resetPassword: async (email, redirectTo) => {
@@ -228,6 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
       if (!error) return null
       if (isEmailRateLimited(error)) return EMAIL_RATE_LIMIT_MESSAGE
+      if (isEmailSendFailure(error)) return 'We couldn\'t send the reset email right now. Please contact admissions.'
       return 'We could not send the reset email. Please try again in a few minutes.'
     },
     updatePassword: async password => {

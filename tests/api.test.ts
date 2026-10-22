@@ -30,10 +30,15 @@ const post = (path: string, headers: Record<string, string> = {}) =>
 const authed = [
   '/api/create-application-checkout',
   '/api/create-registration-checkout',
+  '/api/create-tuition-checkout',
+  '/api/me/tuition-accounts',
   '/api/elp-submissions',
   '/api/applications/00000000-0000-0000-0000-000000000001/notify',
   '/api/admin/instructors',
   '/api/me/student-account',
+  '/api/admin/tuition-accounts/00000000-0000-0000-0000-000000000001/payments',
+  '/api/admin/tuition-payments/00000000-0000-0000-0000-000000000001/void',
+  '/api/admin/tuition-installments/00000000-0000-0000-0000-000000000001/waive',
 ]
 
 describe('student API authorization', () => {
@@ -50,6 +55,20 @@ describe('student API authorization', () => {
 
   it.each(['GET', 'PATCH'])('%s /api/me/student requires a bearer token', async method => {
     const res = await fetch(`${base}/api/me/student`, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : '{}' })
+    expect(res.status).toBe(401)
+  })
+
+  it.each([
+    '/api/me/billing',
+    '/api/admin/courses',
+    '/api/payments/00000000-0000-0000-0000-000000000001/receipt',
+    '/api/agreements/00000000-0000-0000-0000-000000000001/pdf',
+  ])('GET %s requires a bearer token', async path => {
+    expect((await fetch(`${base}${path}`)).status).toBe(401)
+  })
+
+  it('PATCH /api/admin/courses/:id/pricing requires a bearer token', async () => {
+    const res = await fetch(`${base}/api/admin/courses/00000000-0000-0000-0000-000000000001/pricing`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' })
     expect(res.status).toBe(401)
   })
 

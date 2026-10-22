@@ -38,6 +38,16 @@ export function isEmailRateLimited(error: unknown): boolean {
   return code === 'over_email_send_rate_limit' || (status === 429 && /email/i.test(message ?? ''))
 }
 
+export const EMAIL_SEND_FAILED_MESSAGE =
+  'We couldn\'t send your verification email right now, so your account was not created. Please try again later or contact admissions.'
+
+/** Supabase Auth could not deliver an email (for example, SMTP is misconfigured) and rolled the request back. */
+export function isEmailSendFailure(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { message } = error as { message?: string }
+  return /error sending .*email/i.test(message ?? '')
+}
+
 /**
  * Maps Supabase, storage, network and API errors to a message a student can
  * act on. Raw database text is never shown; it goes to the console instead.

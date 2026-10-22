@@ -97,6 +97,22 @@ export type ApplicationDocument = {
 export type Course = { id: string; code: string; name: string; description: string | null; application_fee_cents: number | null }
 export type AcademicSession = { id: string; name: string; starts_at: string; ends_at: string }
 export type ElpResult = { id: string; evaluation: ElpEvaluation | null; submitted_at: string; duration: string }
+export type TuitionAccount = {
+  id: string; currency: string; tuition_cents: number; deposit_cents: number; financing_cents: number
+  paid_cents: number; remaining_cents: number; refunded_cents: number; waived_cents: number; credit_cents: number
+  financing_status: string | null; status: string
+  installments_enabled: boolean; installment_count: number; first_due_at: string | null; created_at: string
+  course?: { name: string; code: string } | null; application?: { reference_no: string } | null
+}
+export type TuitionInstallment = { id: string; tuition_account_id: string; installment_no: number; label: string; amount_cents: number; due_at: string | null; status: string }
+export type TuitionPayment = { id: string; tuition_account_id: string; installment_id: string | null; payment_kind: string | null; payment_method: string; amount_cents: number; refunded_cents: number; currency: string; status: string; receipt_number: string | null; succeeded_at: string | null; refunded_at: string | null; created_at: string }
+export type TuitionAdjustment = { id: string; tuition_account_id: string; installment_id: string | null; kind: string; amount_cents: number; reason: string; created_at: string }
+export type TuitionAgreement = { id: string; tuition_account_id: string; payment_id: string | null; version: string; signer_name: string; accepted_at: string; created_at: string }
+export type FinancingStatus = { id: string; tuition_account_id: string | null; status: string; approved_amount_cents: number | null; funded_amount_cents: number | null; last_referred_at: string; updated_at: string } | null
+export type SelfPayOption = { courseId: string; course: { name: string; code: string; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean }; application: { id: string; reference_no: string } | null }
+export type BillingSummary = { accounts: TuitionAccount[]; installments: TuitionInstallment[]; payments: TuitionPayment[]; agreements: TuitionAgreement[]; adjustments: TuitionAdjustment[]; financing: FinancingStatus; payable?: SelfPayOption[] }
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = { stripe: 'Card (Stripe)', cash: 'Cash', check: 'Check', money_order: 'Money order', other: 'Other' }
 
 const BUCKET = 'student-documents'
 const APPLICATION_COLUMNS = '*, course:cdl_courses(name, code, application_fee_cents), session:cdl_academic_sessions(name, starts_at, ends_at)'
@@ -407,4 +423,66 @@ export function startApplicationCheckout(applicationId: string, paymentPolicyAcc
 
 export function startRegistrationCheckout(paymentPolicyAccepted: boolean, paymentPolicySignature: string) {
   return startCheckout('/api/create-registration-checkout', { paymentPolicyAccepted, paymentPolicySignature })
+}
+
+export function getMyBilling() {
+  return authedFetch<BillingSummary>('/api/me/billing')
+}
+
+export type CoursePricing = { id: string; code: string; name: string; active: boolean; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean; updated_at: string }
+
+export function listCoursePricing() {
+  return authedFetch<{ courses: CoursePricing[] }>('/api/admin/courses').then(result => result.courses)
+}
+
+export function updateCoursePricing(courseId: string, input: { tuitionCents: number; depositCents: number; installmentCount: number }) {
+  return authedFetch<{ course: CoursePricing }>(`/api/admin/courses/${courseId}/pricing`, { method: 'PATCH', body: JSON.stringify(input) }).then(result => result.course)
+}
+
+/** Opens a tuition account at the course price so the student can pay by card. */
+export function openTuitionAccount(courseId: string) {
+  return authedFetch<{ tuitionAccountId: string }>('/api/me/tuition-accounts', { method: 'POST', body: JSON.stringify({ courseId }) })
+}
+
+export function startTuitionCheckout(tuitionAccountId: string, kind: 'full' | 'deposit' | 'installment', installmentId: string | undefined, paymentPolicyAccepted: boolean, paymentPolicySignature: string) {
+  return startCheckout('/api/create-tuition-checkout', { tuitionAccountId, kind, installmentId, paymentPolicyAccepted, paymentPolicySignature })
+}
+
+async function downloadPdf(path: string, filename: string, failure: string) {
+  const { data } = await client().auth.getSession()
+  const token = data.session?.access_token
+  if (!token) throw new ApiError('Your session has expired. Sign in again.', 401)
+  const response = await fetch(getApiUrl(path), { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok) throw new ApiError(failure, response.status)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export function downloadReceipt(paymentId: string, receiptNumber?: string | null) {
+  return downloadPdf(`/api/payments/${encodeURIComponent(paymentId)}/receipt`, `${receiptNumber || 'IMAN-receipt'}.pdf`, 'The receipt could not be downloaded.')
+}
+
+export function downloadAgreement(agreementId: string) {
+  return downloadPdf(`/api/agreements/${encodeURIComponent(agreementId)}/pdf`, `IMAN-agreement-${agreementId.slice(0, 8)}.pdf`, 'The agreement could not be downloaded.')
+}
+
+// Admin tuition actions (admin or super admin). The server validates and
+// audits each one; clients never write payments or waivers directly.
+export type ManualPaymentInput = { amountCents: number; method: 'cash' | 'check' | 'money_order' | 'other'; installmentId?: string; reference?: string; note?: string }
+
+export function recordManualPayment(accountId: string, input: ManualPaymentInput) {
+  return authedFetch(`/api/admin/tuition-accounts/${encodeURIComponent(accountId)}/payments`, { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function voidManualPayment(paymentId: string, reason: string) {
+  return authedFetch(`/api/admin/tuition-payments/${encodeURIComponent(paymentId)}/void`, { method: 'POST', body: JSON.stringify({ reason }) })
+}
+
+export function waiveInstallment(installmentId: string, reason: string) {
+  return authedFetch(`/api/admin/tuition-installments/${encodeURIComponent(installmentId)}/waive`, { method: 'POST', body: JSON.stringify({ reason }) })
 }

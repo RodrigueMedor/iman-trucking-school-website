@@ -32,6 +32,14 @@ jobs:
       - name: Test
         run: npm test
 
+      # Every migration plus the RLS, ledger and Stripe webhook suites, in
+      # throwaway containers. A failure here stops the deploy.
+      - name: Database tests
+        run: bash scripts/test-db.sh --docker
+
+      - name: Payment integration tests
+        run: bash scripts/test-integration.sh
+
       - name: Skip SSH deploy
         if: env.DEPLOY_CONFIGURED != 'true'
         run: echo "Hostinger SSH secrets are not set; skipping SSH deploy (Hostinger deploys from GitHub)."

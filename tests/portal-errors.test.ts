@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ApiError, isEmailRateLimited, toMessage } from '../src/portal/errors'
+import { ApiError, isEmailRateLimited, isEmailSendFailure, toMessage } from '../src/portal/errors'
 
 describe('toMessage', () => {
   it('explains a missing license document', () => {
@@ -52,4 +52,12 @@ describe('isEmailRateLimited', () => {
     expect(isEmailRateLimited({ status: 400, message: 'Invalid login credentials' })).toBe(false)
     expect(isEmailRateLimited(null)).toBe(false)
   })
+})
+
+describe('isEmailSendFailure', () => {
+  it('detects Supabase SMTP delivery failures', () => {
+    expect(isEmailSendFailure({ status: 500, message: 'Error sending confirmation email' })).toBe(true)
+    expect(isEmailSendFailure({ message: 'Error sending recovery email' })).toBe(true)
+  })
+  it('ignores other errors', () => expect(isEmailSendFailure({ status: 500, message: 'Database error saving new user' })).toBe(false))
 })
