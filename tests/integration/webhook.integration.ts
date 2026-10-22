@@ -267,3 +267,113 @@ describe('admin tuition actions', () => {
     expect((await call('token-admin', 'GET', path)).status).toBe(200)
   })
 })
+
+describe('CDL Training pricing with optional housing', () => {
+  const OTHER = USERS['token-other'].id
+  let courseId = ''
+  let accountId = ''
+  const account = async () => (await db.from('cdl_tuition_account_balances').select('*').eq('id', accountId).single()).data
+
+  beforeAll(async () => {
+    courseId = (await db.from('cdl_courses').select('id').eq('code', 'CDL-A').single()).data!.id
+  })
+
+  it('offers the itemized price, $3,429 without and $3,929 with housing', async () => {
+    const res = await call('token-other', 'GET', '/api/me/billing')
+    expect(res.status).toBe(200)
+    const option = (await res.json()).payable.find((item: { courseId: string }) => item.courseId === courseId)
+    expect(option.pricing).toMatchObject({ totalWithoutHousingCents: 342900, totalWithHousingCents: 392900, housingFeeCents: 50000 })
+    expect(option.pricing.items.map((item: { amount_cents: number }) => item.amount_cents)).toEqual([259900, 60000, 8000, 15000])
+  })
+
+  it('rejects prices sent by the browser', async () => {
+    expect((await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId, housingSelected: false, tuitionCents: 100 })).status).toBe(400)
+  })
+
+  it('opens the account without housing by default, with a fee snapshot', async () => {
+    const res = await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId })
+    expect(res.status).toBe(201)
+    accountId = (await res.json()).tuitionAccountId
+    const row = await account()
+    expect([row.tuition_cents, row.housing_selected, row.housing_fee_cents, row.fee_items.length, row.remaining_cents]).toEqual([342900, false, 50000, 4, 342900])
+  })
+
+  it('adds and removes housing, recalculated on the server', async () => {
+    const path = `/api/me/tuition-accounts/${accountId}/housing`
+    expect((await call('token-other', 'PATCH', path, { housingSelected: true, tuitionCents: 1 })).status).toBe(400)
+    const added = await call('token-other', 'PATCH', path, { housingSelected: true })
+    expect(added.status).toBe(200)
+    expect((await added.json()).account).toMatchObject({ tuition_cents: 392900, housing_selected: true })
+    expect((await call('token-other', 'PATCH', path, { housingSelected: false })).status).toBe(200)
+    expect((await account()).tuition_cents).toBe(342900)
+  })
+
+  it('keeps the choice when the student returns to the checkout', async () => {
+    await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })
+    const billing = await (await call('token-other', 'GET', '/api/me/billing')).json()
+    expect(billing.accounts[0]).toMatchObject({ id: accountId, housing_selected: true, remaining_cents: 392900 })
+    // Reopening for the same course applies the choice sent with it.
+    const reopened = await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId, housingSelected: false })
+    expect((await reopened.json()).tuitionAccountId).toBe(accountId)
+    expect((await account()).tuition_cents).toBe(342900)
+  })
+
+  it("refuses another student's account", async () => {
+    expect((await call('token-student', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })).status).toBe(404)
+    expect((await account()).housing_selected).toBe(false)
+  })
+
+  it('cancels an unpaid checkout priced for the old choice', async () => {
+    const { data: pending } = await db.from('cdl_payments').insert({
+      amount_cents: 342900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId, metadata: { expected_amount: 342900 },
+    }).select('id').single()
+    expect((await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })).status).toBe(200)
+    expect((await payment(pending!.id)).status).toBe('canceled')
+    expect((await account()).tuition_cents).toBe(392900)
+  })
+
+  it('leaves existing accounts and their price untouched when the price changes', async () => {
+    const { data: before } = await db.from('cdl_courses').select('pricing_version').eq('id', courseId).single()
+    await db.from('cdl_courses').update({ training_cents: 279900 }).eq('id', courseId)
+    const { data: course } = await db.from('cdl_courses').select('tuition_cents, pricing_version').eq('id', courseId).single()
+    expect(course).toEqual({ tuition_cents: 362900, pricing_version: before!.pricing_version + 1 })
+    const { data: history } = await db.from('cdl_course_pricing_versions').select('version, tuition_cents').eq('course_id', courseId).order('version')
+    expect(history!.at(-1)).toEqual({ version: before!.pricing_version + 1, tuition_cents: 362900 })
+    const row = await account()
+    expect([row.tuition_cents, row.fee_items[0].amount_cents]).toEqual([392900, 259900])
+    await db.from('cdl_courses').update({ training_cents: 259900 }).eq('id', courseId)
+  })
+
+  it('lets only the super administrator change course prices', async () => {
+    const res = await call('token-admin', 'PATCH', `/api/admin/courses/${courseId}/pricing`, { trainingCents: 1, testingFeeCents: 0, administrativeFeeCents: 0, materialsFeeCents: 0, housingFeeCents: 0, depositCents: 0, installmentCount: 1 })
+    expect(res.status).toBe(403)
+  })
+
+  it('does not mark the account paid when the payment fails', async () => {
+    const { data: pending } = await db.from('cdl_payments').insert({
+      amount_cents: 392900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId,
+      stripe_checkout_session_id: `cs_test_failed_${accountId.slice(0, 8)}`, metadata: { expected_amount: 392900 },
+    }).select('id').single()
+    await deliver('checkout.session.async_payment_failed', { id: `cs_test_failed_${accountId.slice(0, 8)}`, object: 'checkout.session', status: 'complete', payment_status: 'unpaid', amount_total: 392900, currency: 'usd', metadata: { payment_id: pending!.id, payment_type: 'tuition', tuition_account_id: accountId } })
+    expect((await payment(pending!.id)).status).toBe('failed')
+    const row = await account()
+    expect([row.paid_cents, row.remaining_cents, row.status]).toEqual([0, 392900, 'OPEN'])
+  })
+
+  it('records the full payment with housing and then locks the housing choice', async () => {
+    const id = randomUUID()
+    const session = `cs_test_${id.replace(/-/g, '')}`
+    await db.from('cdl_payments').insert({
+      id, amount_cents: 392900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId,
+      stripe_checkout_session_id: session, metadata: { expected_amount: 392900 },
+    })
+    await deliver('checkout.session.completed', { id: session, object: 'checkout.session', status: 'complete', payment_status: 'paid', amount_total: 392900, currency: 'usd', payment_intent: `pi_${id.slice(0, 8)}`, metadata: { payment_id: id, payment_type: 'tuition', tuition_account_id: accountId } })
+    const row = await account()
+    expect([row.paid_cents, row.remaining_cents, row.status]).toEqual([392900, 0, 'PAID'])
+    const locked = await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: false })
+    expect(locked.status).toBe(409)
+    expect((await account()).tuition_cents).toBe(392900)
+    const receipt = await call('token-other', 'GET', `/api/payments/${id}/receipt`)
+    expect([receipt.status, receipt.headers.get('content-type')]).toEqual([200, 'application/pdf'])
+  })
+})

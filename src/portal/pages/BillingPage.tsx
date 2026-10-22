@@ -5,9 +5,9 @@ import DownloadRounded from '@mui/icons-material/DownloadRounded'
 import { useSearchParams } from 'react-router-dom'
 import { FinancingCallout } from '../../components/financing/FinancingCallout'
 import { getPaymentStatus } from '../../lib/stripe'
-import { downloadAgreement, downloadReceipt, getMyBilling, getMyStudent, openTuitionAccount, PAYMENT_METHOD_LABELS, startTuitionCheckout, toMessage, type BillingSummary, type SelfPayOption, type TuitionAccount } from '../api'
+import { downloadAgreement, downloadReceipt, getMyBilling, getMyStudent, openTuitionAccount, PAYMENT_METHOD_LABELS, setTuitionHousing, startTuitionCheckout, toMessage, type BillingSummary, type FeeItem, type SelfPayOption, type TuitionAccount } from '../api'
+import { CdlPricingSheet, sheetMoney } from '../CdlPricingSheet'
 import { PayFeeDialog } from '../PayFeeDialog'
-import { SelfPayCard } from '../SelfPayCard'
 import { formatDate, formatDateTime, PageHeader, SectionCard } from '../ui'
 
 const money = (cents: number, currency = 'usd') => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format((cents || 0) / 100)
@@ -21,6 +21,20 @@ const FINANCING_LABELS: Record<string, string> = {
 
 type Choice = { account: TuitionAccount; kind: 'full' | 'deposit' | 'installment'; installmentId?: string; label: string } | null
 
+/** How the course can be paid once its tuition account is open. */
+function payPlan(course: SelfPayOption['course']) {
+  const parts = []
+  if (course.deposit_cents > 0) parts.push(`${money(course.deposit_cents)} deposit option`)
+  if (course.installments_enabled && course.installment_count > 1) parts.push(`${course.installment_count} installments`)
+  return parts.length ? parts.join(' · ') : 'Paid in full'
+}
+
+/** Fee lines of an account; older accounts without a breakdown show one tuition line. */
+function accountItems(account: TuitionAccount): FeeItem[] {
+  if (account.fee_items?.length) return account.fee_items
+  return [{ code: 'tuition', label: 'Tuition', amount_cents: account.tuition_cents - (account.housing_selected ? account.housing_fee_cents : 0) }]
+}
+
 export function BillingPage() {
   const [params, setParams] = useSearchParams()
   const [billing, setBilling] = useState<BillingSummary | null>(null)
@@ -29,6 +43,9 @@ export function BillingPage() {
   const [error, setError] = useState('')
   const [opening, setOpening] = useState(false)
   const [courseId, setCourseId] = useState('')
+  // Housing choice before a tuition account exists; afterwards it is stored on the account.
+  const [housing, setHousing] = useState(false)
+  const [savingHousing, setSavingHousing] = useState(false)
 
   const load = async () => {
     const sessionId = params.get('session_id')
@@ -48,7 +65,7 @@ export function BillingPage() {
   const payByCard = async (option: SelfPayOption) => {
     setOpening(true); setError('')
     try {
-      const { tuitionAccountId } = await openTuitionAccount(option.courseId)
+      const { tuitionAccountId } = await openTuitionAccount(option.courseId, housing)
       const summary = await load()
       const account = summary.accounts.find(item => item.id === tuitionAccountId)
       const flexible = account && (account.deposit_cents > 0 || account.installments_enabled)
@@ -60,6 +77,62 @@ export function BillingPage() {
     }
   }
 
+  // The account the student is paying now, else the course they can open one for.
+  const current = billing?.accounts.find(account => account.status !== 'CLOSED') || null
+  const selectedOption = billing?.payable?.length
+    ? billing.payable.find(item => item.courseId === courseId) || billing.payable.find(item => item.application) || billing.payable[0]
+    : null
+
+  const changeHousing = async (account: TuitionAccount, selected: boolean) => {
+    setSavingHousing(true); setError('')
+    try {
+      await setTuitionHousing(account.id, selected)
+      await load()
+    } catch (err) {
+      setError(toMessage(err))
+    } finally {
+      setSavingHousing(false)
+    }
+  }
+
+  const sheet = () => {
+    if (!billing) return null
+    if (current) {
+      const payments = billing.payments.filter(item => item.tuition_account_id === current.id)
+      const applied = payments.some(item => ['succeeded', 'refunded'].includes(item.status)) || current.financing_cents > 0 || current.waived_cents > 0
+      const remaining = current.remaining_cents
+      const next = billing.installments.filter(item => item.tuition_account_id === current.id && ['DUE', 'PENDING'].includes(item.status))
+        .sort((a, b) => a.installment_no - b.installment_no)[0]
+      const onInstallmentPlan = current.installments_enabled && !!next && (current.deposit_cents === 0 || current.paid_cents > 0)
+      const totalLabel = applied ? 'Remaining balance' : current.housing_selected ? 'Total with housing' : 'Total without housing'
+      const due = remaining === 0 ? { label: 'Paid in full', amountCents: 0, caption: `Total program cost ${money(current.tuition_cents, current.currency)}` }
+        : onInstallmentPlan ? { label: `${next.label}${next.due_at ? ` · due ${formatDate(next.due_at)}` : ''}`, amountCents: Math.min(next.amount_cents, remaining), caption: `Remaining balance ${money(remaining, current.currency)}` }
+          : { label: totalLabel, amountCents: remaining, caption: applied ? `Total program cost ${money(current.tuition_cents, current.currency)} · Paid ${money(current.paid_cents, current.currency)}` : undefined }
+      const action = remaining === 0 ? null : onInstallmentPlan
+        ? <Button variant="contained" color="secondary" size="large" disabled={!student || savingHousing} onClick={() => setChoice({ account: current, kind: 'installment', installmentId: next.id, label: `Pay ${next.label}` })}>{next.status === 'PENDING' ? 'Resume payment' : `Pay ${sheetMoney(due.amountCents, current.currency)}`}</Button>
+        : <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} justifyContent="flex-end">
+          {current.deposit_cents > 0 && current.paid_cents === 0 && <Button variant="outlined" size="large" disabled={!student || savingHousing} onClick={() => setChoice({ account: current, kind: 'deposit', label: `Pay ${money(Math.min(current.deposit_cents, remaining), current.currency)} deposit` })}>Pay {money(Math.min(current.deposit_cents, remaining), current.currency)} deposit</Button>}
+          <Button variant="contained" color="secondary" size="large" startIcon={<CreditCardRounded />} disabled={!student || savingHousing} onClick={() => setChoice({ account: current, kind: 'full', label: `Pay ${money(remaining, current.currency)}${applied ? '' : ' in full'}` })}>Pay {sheetMoney(remaining, current.currency)}</Button>
+        </Stack>
+      return <CdlPricingSheet items={accountItems(current)} housingFeeCents={current.fee_items?.length ? current.housing_fee_cents : 0} currency={current.currency}
+        housingSelected={current.housing_selected} onHousingChange={selected => void changeHousing(current, selected)} busy={savingHousing}
+        housingLockedReason={applied || remaining === 0 ? `Housing ${current.housing_selected ? 'is included' : 'is not included'}. A payment has been applied, so contact admissions to change it.` : undefined}
+        due={due} action={action} />
+    }
+    if (!selectedOption) return null
+    const { pricing } = selectedOption
+    const total = pricing.totalWithoutHousingCents + (housing ? pricing.housingFeeCents : 0)
+    const flexible = selectedOption.course.deposit_cents > 0 || (selectedOption.course.installments_enabled && selectedOption.course.installment_count > 1)
+    return <CdlPricingSheet items={pricing.items} housingFeeCents={pricing.housingFeeCents} currency={pricing.currency}
+      housingSelected={housing} onHousingChange={setHousing} busy={opening}
+      courses={billing.payable!.map(item => ({ id: item.courseId, name: item.course.name, detail: `${item.application ? `Application ${item.application.reference_no} · ` : ''}${payPlan(item.course)}`, totalCents: item.pricing.totalWithoutHousingCents }))}
+      courseId={selectedOption.courseId} onCourse={setCourseId}
+      due={{ label: housing ? 'Total with housing' : 'Total without housing', amountCents: total, caption: flexible ? 'You can choose full payment, a deposit or installments on the next step.' : undefined }}
+      action={<Button variant="contained" color="secondary" size="large" startIcon={<CreditCardRounded />} disabled={opening || !student} onClick={() => void payByCard(selectedOption)}>
+        {opening ? 'Preparing secure checkout…' : flexible ? 'Continue to payment options' : `Pay ${sheetMoney(total, pricing.currency)}`}
+      </Button>} />
+  }
+
   return <>
     <PageHeader title="Tuition & payments" subtitle="Review your balance, then pay securely with Stripe or apply for financing with Liberty Career Finance." />
     {params.get('payment') === 'success' && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setParams({}, { replace: true })}>Payment received. Your balance and receipt are now being updated.</Alert>}
@@ -69,7 +142,8 @@ export function BillingPage() {
       <Alert severity="info" sx={{ mb: 3 }}>No tuition account has been assigned yet. Admissions will add one after your training application is reviewed.</Alert>
       <FinancingCallout variant="card" />
     </> : <Stack spacing={3}>
-      {!!billing.payable?.length && <SelfPayCard options={billing.payable} courseId={courseId} onCourse={setCourseId} opening={opening} disabled={!student} onPay={option => void payByCard(option)} />}
+      {sheet()}
+      {!current && !!billing.payable?.length && <FinancingCallout variant="card" title="Prefer to finance?" showLearnMore={false} />}
       {billing.accounts.map(account => {
         const installments = billing.installments.filter(item => item.tuition_account_id === account.id)
         const payments = billing.payments.filter(item => item.tuition_account_id === account.id)
@@ -78,7 +152,7 @@ export function BillingPage() {
         const paidPercent = account.tuition_cents ? Math.min(100, (covered / account.tuition_cents) * 100) : 100
         const due = account.remaining_cents > 0
         const financingStatus = account.financing_status || billing.financing?.status || null
-        const summary: [string, number][] = [['Tuition', account.tuition_cents], ['Paid', account.paid_cents], ['Financing', account.financing_cents]]
+        const summary: [string, number][] = [[account.housing_selected ? 'Total (with housing)' : 'Total', account.tuition_cents], ['Paid', account.paid_cents], ['Financing', account.financing_cents]]
         if (account.waived_cents > 0) summary.push(['Waived', account.waived_cents])
         summary.push(['Remaining', account.remaining_cents])
 
@@ -93,7 +167,9 @@ export function BillingPage() {
           <LinearProgress variant="determinate" value={paidPercent} sx={{ height: 9, borderRadius: 9, mb: 3 }} aria-label={`${Math.round(paidPercent)}% of tuition covered`} />
           {account.credit_cents > 0 && <Alert severity="info" sx={{ mb: 3 }}>Your payments and financing exceed your tuition by {money(account.credit_cents, account.currency)}. Admissions will contact you about this credit.</Alert>}
 
-          {due && <Grid container spacing={2} sx={{ mb: 3 }}>
+          {/* The pricing sheet above holds the payment actions for the current account. */}
+          {due && account.id === current?.id && <Box sx={{ mb: 3 }}><FinancingCallout variant="card" title="Apply for financing" showLearnMore={false} /></Box>}
+          {due && account.id !== current?.id && <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={{ xs: 12, md: 6 }}>
               <Paper elevation={0} sx={{ p: { xs: 2.5, md: 3 }, height: '100%', borderRadius: 3, border: 1, borderColor: 'divider' }}>
                 <Stack spacing={1.5}>

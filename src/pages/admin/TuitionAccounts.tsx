@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Box, Button, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Checkbox, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControlLabel, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import DownloadRounded from '@mui/icons-material/DownloadRounded'
 import { supabase } from '../../lib/supabase'
-import { installmentSchedule } from '../../../shared/tuition.mjs'
-import { downloadAgreement, downloadReceipt, PAYMENT_METHOD_LABELS, recordManualPayment, toMessage, voidManualPayment, waiveInstallment, type ManualPaymentInput } from '../../portal/api'
+import { coursePricing, installmentSchedule, pricingTotal } from '../../../shared/tuition.mjs'
+import { downloadAgreement, downloadReceipt, PAYMENT_METHOD_LABELS, type FeeItem, recordManualPayment, toMessage, voidManualPayment, waiveInstallment, type ManualPaymentInput } from '../../portal/api'
 import { formatDate, formatDateTime } from '../../portal/ui'
 
 const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((value || 0) / 100)
 const label = (value: string) => value.replaceAll('_', ' ').toLowerCase().replace(/^\w/, ch => ch.toUpperCase())
 const toCents = (value: string) => Math.round(Number(value) * 100)
 
-type Account = { id: string; user_id: string; student_id: string; application_id: string | null; course_id: string | null; tuition_cents: number; deposit_cents: number; financing_cents: number; paid_cents: number; remaining_cents: number; refunded_cents: number; waived_cents: number; credit_cents: number; financing_status: string | null; status: string; installments_enabled: boolean; installment_count: number; created_at: string; student?: { first_name: string; last_name: string; email: string; phone: string | null } | null; course?: { name: string } | null }
-type App = { id: string; user_id: string; student_id: string; reference_no: string; first_name: string; last_name: string; email: string; course_id: string; course?: { name: string; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean } | null }
+type Account = { id: string; user_id: string; student_id: string; application_id: string | null; course_id: string | null; tuition_cents: number; deposit_cents: number; financing_cents: number; paid_cents: number; remaining_cents: number; refunded_cents: number; waived_cents: number; credit_cents: number; financing_status: string | null; status: string; installments_enabled: boolean; installment_count: number; created_at: string; fee_items: FeeItem[]; housing_fee_cents: number; housing_selected: boolean; pricing_version: number | null; student?: { first_name: string; last_name: string; email: string; phone: string | null } | null; course?: { name: string } | null }
+type App = { id: string; user_id: string; student_id: string; reference_no: string; first_name: string; last_name: string; email: string; course_id: string; course?: { name: string; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean; training_cents: number; testing_fee_cents: number; administrative_fee_cents: number; materials_fee_cents: number; housing_fee_cents: number; currency: string; pricing_version: number } | null }
 type Installment = { id: string; installment_no: number; label: string; amount_cents: number; due_at: string | null; status: string }
 type Payment = { id: string; installment_id: string | null; payment_kind: string | null; payment_method: string; amount_cents: number; refunded_cents: number; status: string; receipt_number: string | null; succeeded_at: string | null; created_at: string; error_message: string | null; metadata: { reference?: string | null; recorded_by_email?: string } | null }
 type Agreement = { id: string; signer_name: string; accepted_at: string; version: string; payment_id: string | null }
@@ -129,6 +129,11 @@ function AccountDrawer({ account, onClose, onChanged }: { account: Account; onCl
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 2, my: 3 }}>
         {([['Tuition', account.tuition_cents], ['Paid', account.paid_cents], ['Financing', account.financing_cents], ['Waived', account.waived_cents], ['Remaining', account.remaining_cents]] as const).map(([name, value]) => <Box key={name}><Typography variant="caption" color="text.secondary" fontWeight={800}>{name}</Typography><Typography variant="h6" fontWeight={950}>{money(value)}</Typography></Box>)}
       </Box>
+      {account.fee_items?.length > 0 && <Box sx={{ mb: 3, p: 2, borderRadius: 2, bgcolor: '#f5f5f8' }}>
+        <Typography fontWeight={900} mb={1}>Program costs{account.pricing_version ? ` · pricing v${account.pricing_version}` : ''}</Typography>
+        {account.fee_items.map(item => <Stack key={item.code} direction="row" justifyContent="space-between"><Typography variant="body2">{item.label}</Typography><Typography variant="body2" fontWeight={800}>{money(item.amount_cents)}</Typography></Stack>)}
+        <Stack direction="row" justifyContent="space-between"><Typography variant="body2">Optional housing{account.housing_fee_cents ? ` (${money(account.housing_fee_cents)})` : ''}</Typography><Typography variant="body2" fontWeight={800}>{account.housing_selected ? 'Selected' : account.housing_fee_cents ? 'Not selected' : 'Not offered'}</Typography></Stack>
+      </Box>}
       {open && account.remaining_cents > 0 && <Button variant="contained" color="secondary" onClick={() => setRecording(true)} disabled={!detail}>Record offline payment</Button>}
 
       {!detail ? <Typography color="text.secondary" mt={3}>Loading…</Typography> : <>
@@ -183,6 +188,7 @@ export function TuitionAccounts() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [applicationId, setApplicationId] = useState('')
   const [tuition, setTuition] = useState('')
+  const [housing, setHousing] = useState(false)
   const [deposit, setDeposit] = useState('')
   const [count, setCount] = useState('1')
   const [error, setError] = useState('')
@@ -192,7 +198,7 @@ export function TuitionAccounts() {
     if (!supabase) return
     const [accountResult, appResult] = await Promise.all([
       supabase.from('cdl_tuition_account_balances').select('*, student:cdl_students(first_name,last_name,email,phone), course:cdl_courses(name)').order('created_at', { ascending: false }),
-      supabase.from('cdl_class_applications').select('id,user_id,student_id,reference_no,first_name,last_name,email,course_id,course:cdl_courses(name,tuition_cents,deposit_cents,installment_count,installments_enabled)').eq('application_type', 'TRAINING').in('status', ['APPROVED','SCHEDULED','COMPLETED']).order('created_at', { ascending: false }),
+      supabase.from('cdl_class_applications').select('id,user_id,student_id,reference_no,first_name,last_name,email,course_id,course:cdl_courses(name,tuition_cents,deposit_cents,installment_count,installments_enabled,training_cents,testing_fee_cents,administrative_fee_cents,materials_fee_cents,housing_fee_cents,currency,pricing_version)').eq('application_type', 'TRAINING').in('status', ['APPROVED','SCHEDULED','COMPLETED']).order('created_at', { ascending: false }),
     ])
     if (accountResult.error) setError(toMessage(accountResult.error)); else setRows((accountResult.data || []) as unknown as Account[])
     if (!appResult.error) setApps((appResult.data || []) as unknown as App[])
@@ -203,6 +209,7 @@ export function TuitionAccounts() {
     setApplicationId(id)
     const app = apps.find(item => item.id === id)
     // Course prices are stored in cents; the form takes dollars.
+    setHousing(false)
     if (app?.course) {
       setTuition(app.course.tuition_cents ? String(app.course.tuition_cents / 100) : '')
       setDeposit(app.course.deposit_cents ? String(app.course.deposit_cents / 100) : '')
@@ -219,11 +226,17 @@ export function TuitionAccounts() {
     if (!app || !Number.isInteger(tuitionCents) || tuitionCents <= 0 || depositCents < 0 || depositCents > tuitionCents || !Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 24) return setError('Enter a valid application, tuition, deposit and installment count.')
     setBusy(true); setError('')
     const { data: auth } = await supabase.auth.getUser()
+    // Keep the course's fee breakdown when admissions charges the list price;
+    // a custom tuition is stored without one.
+    const pricing = app.course ? coursePricing(app.course) : null
+    const itemized = pricing && pricingTotal(pricing.items, pricing.housingFeeCents, housing) === tuitionCents
+      ? { fee_items: pricing.items, housing_fee_cents: pricing.housingFeeCents, housing_selected: housing && pricing.housingFeeCents > 0, pricing_version: pricing.version }
+      : {}
     // The database links any existing Liberty referral to the new account.
     const { data: account, error: insertError } = await supabase.from('cdl_tuition_accounts').insert({
       user_id: app.user_id, student_id: app.student_id, application_id: app.id, course_id: app.course_id,
       tuition_cents: tuitionCents, deposit_cents: depositCents, installment_count: installmentCount,
-      installments_enabled: installmentCount > 1, created_by: auth.user?.id, updated_by: auth.user?.id,
+      installments_enabled: installmentCount > 1, created_by: auth.user?.id, updated_by: auth.user?.id, ...itemized,
     }).select().single()
     if (insertError || !account) { setBusy(false); return setError(toMessage(insertError)) }
     const installments = installmentSchedule({ tuitionCents, depositCents, installmentCount }).map(item => ({ ...item, tuition_account_id: account.id }))
@@ -231,12 +244,13 @@ export function TuitionAccounts() {
       const { error: scheduleError } = await supabase.from('cdl_tuition_installments').insert(installments)
       if (scheduleError) setError(`Account created, but the installment schedule failed: ${toMessage(scheduleError)}`)
     }
-    setBusy(false); setOpen(false); setApplicationId(''); setTuition(''); setDeposit(''); setCount('1'); await load()
+    setBusy(false); setOpen(false); setApplicationId(''); setTuition(''); setHousing(false); setDeposit(''); setCount('1'); await load()
   }
 
   // A student may already have paid by card before applying for that course.
   const available = apps.filter(app => !rows.some(row => row.application_id === app.id
     || (!row.application_id && row.user_id === app.user_id && row.course_id === app.course_id && row.status !== 'CLOSED')))
+  const chosenCourse = apps.find(item => item.id === applicationId)?.course || null
   const active = rows.filter(row => row.status !== 'CLOSED')
   const sum = (key: 'paid_cents' | 'remaining_cents' | 'financing_cents') => active.reduce((total, row) => total + row[key], 0)
   const financingPending = active.filter(row => row.status === 'FINANCING_PENDING').length
@@ -256,17 +270,22 @@ export function TuitionAccounts() {
       <Stat name="Funded financing" value={money(sum('financing_cents'))} />
       <Stat name="Awaiting financing" value={`${financingPending} student${financingPending === 1 ? '' : 's'}`} />
     </Box>
-    <Paper sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 900 }}><TableHead><TableRow>{['Student','Program','Tuition','Paid','Financing','Remaining','Status','Created'].map(name => <TableCell key={name} sx={{ fontWeight: 900 }}>{name}</TableCell>)}</TableRow></TableHead><TableBody>
+    <Paper sx={{ overflowX: 'auto' }}><Table sx={{ minWidth: 980 }}><TableHead><TableRow>{['Student','Program','Tuition','Housing','Paid','Financing','Remaining','Status','Created'].map(name => <TableCell key={name} sx={{ fontWeight: 900 }}>{name}</TableCell>)}</TableRow></TableHead><TableBody>
       {rows.length ? rows.map(row => <TableRow key={row.id} hover onClick={() => setSelectedId(row.id)} sx={{ cursor: 'pointer' }} tabIndex={0} onKeyDown={event => { if (event.key === 'Enter') setSelectedId(row.id) }}>
         <TableCell><Typography fontWeight={900}>{row.student?.first_name} {row.student?.last_name}</Typography><Typography variant="body2" color="text.secondary">{row.student?.email}</Typography></TableCell>
-        <TableCell>{row.course?.name || 'CDL Training'}</TableCell><TableCell>{money(row.tuition_cents)}</TableCell><TableCell>{money(row.paid_cents)}</TableCell><TableCell>{money(row.financing_cents)}</TableCell>
+        <TableCell>{row.course?.name || 'CDL Training'}</TableCell><TableCell>{money(row.tuition_cents)}</TableCell><TableCell>{row.housing_selected ? 'Yes' : row.housing_fee_cents ? 'No' : '—'}</TableCell><TableCell>{money(row.paid_cents)}</TableCell><TableCell>{money(row.financing_cents)}</TableCell>
         <TableCell sx={{ fontWeight: 900 }}>{money(row.remaining_cents)}{row.credit_cents > 0 && <Typography variant="caption" display="block" color="warning.main" fontWeight={800}>{money(row.credit_cents)} credit</Typography>}</TableCell>
         <TableCell><Chip size="small" label={label(row.status)} color={row.status === 'PAID' ? 'success' : 'info'} /></TableCell><TableCell>{formatDateTime(row.created_at)}</TableCell>
-      </TableRow>) : <TableRow><TableCell colSpan={8} align="center">No tuition accounts yet.</TableCell></TableRow>}
+      </TableRow>) : <TableRow><TableCell colSpan={9} align="center">No tuition accounts yet.</TableCell></TableRow>}
     </TableBody></Table></Paper>
     <Dialog open={open} onClose={() => !busy && setOpen(false)} fullWidth maxWidth="sm"><DialogTitle fontWeight={950}>Create tuition account</DialogTitle><DialogContent><Stack spacing={2.5} mt={1}>
       <TextField select label="Approved training application" value={applicationId} onChange={event => chooseApp(event.target.value)}>{available.map(app => <MenuItem key={app.id} value={app.id}>{app.first_name} {app.last_name} · {app.reference_no}</MenuItem>)}</TextField>
-      <TextField label="Tuition (USD)" type="number" value={tuition} onChange={event => setTuition(event.target.value)} inputProps={{ min: 0, step: '.01' }} />
+      {!!chosenCourse?.housing_fee_cents && <FormControlLabel control={<Checkbox checked={housing} onChange={event => {
+        setHousing(event.target.checked)
+        setTuition(String((chosenCourse.tuition_cents + (event.target.checked ? chosenCourse.housing_fee_cents : 0)) / 100))
+      }} />} label={`Student chose optional housing (+${money(chosenCourse.housing_fee_cents)})`} />}
+      <TextField label="Tuition (USD)" type="number" value={tuition} onChange={event => setTuition(event.target.value)} inputProps={{ min: 0, step: '.01' }}
+        helperText={chosenCourse && toCents(tuition || '0') !== chosenCourse.tuition_cents + (housing ? chosenCourse.housing_fee_cents : 0) ? 'Custom tuition: the student will see one tuition line instead of the fee breakdown.' : 'Course price with its itemized fees.'} />
       <TextField label="Deposit (USD)" type="number" value={deposit} onChange={event => setDeposit(event.target.value)} inputProps={{ min: 0, step: '.01' }} />
       <TextField label="Number of installments" type="number" value={count} onChange={event => setCount(event.target.value)} inputProps={{ min: 1, max: 24 }} helperText="Use 1 to disable installments. The deposit is separate from the installment balance." />
     </Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)} disabled={busy}>Cancel</Button><Button variant="contained" color="secondary" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create account'}</Button></DialogActions></Dialog>
