@@ -66,17 +66,13 @@ export function HomeHero() {
       component="section"
       sx={{
         position: 'relative', overflow: 'hidden',
-        background: 'radial-gradient(70% 80% at 50% 0%, #ffffff 0%, #f5f6fb 60%, #eef0f8 100%)',
+        bgcolor: '#f5f6fb',
       }}
     >
-      <Box sx={{ position: 'relative' }}>
-      <EdgeMedia side="left">
-        <Box aria-hidden sx={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/gallery/gallery-23.jpg)', backgroundSize: 'cover', backgroundPosition: '70% 40%' }} />
-      </EdgeMedia>
-      <EdgeMedia side="right">
-        {reduceMotion ? (
-          <Box aria-hidden sx={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/home-hero.jpg)', backgroundSize: 'cover', backgroundPosition: '62% center' }} />
-        ) : (
+      <Box sx={{ position: 'relative', isolation: 'isolate', bgcolor: '#041226' }}>
+      {/* Truck training videos behind the headline, rotating; a still photo when motion is reduced. */}
+      <Box aria-hidden sx={{ position: 'absolute', inset: 0, zIndex: -1, overflow: 'hidden', backgroundImage: 'url(/images/home-hero.jpg)', backgroundSize: 'cover', backgroundPosition: { xs: '62% center', md: 'center 45%' } }}>
+        {!reduceMotion && (
           <Box
             component="video"
             key={trainingVideos[activeVideo].src}
@@ -95,26 +91,29 @@ export function HomeHero() {
             }}
           />
         )}
+        {/* Navy tint, a little deeper behind the text so it stays readable. */}
+        <Box sx={{ position: 'absolute', inset: 0, background: 'radial-gradient(60% 70% at 50% 38%, rgba(4,18,38,.72) 0%, rgba(4,18,38,.5) 70%, rgba(4,18,38,.38) 100%), linear-gradient(180deg, rgba(8,8,95,.25) 0%, rgba(4,18,38,.15) 60%, rgba(4,18,38,.55) 100%)' }} />
+      </Box>
+      <EdgeMedia side="left">
+        <Box aria-hidden sx={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/gallery/gallery-23.jpg)', backgroundSize: 'cover', backgroundPosition: '70% 40%' }} />
       </EdgeMedia>
+      <EdgeMedia side="right">{null}</EdgeMedia>
 
-      {/* Phones and small tablets: one photo strip above the headline. */}
-      <Box aria-hidden sx={{ display: { xs: 'block', md: 'none' }, height: { xs: 200, sm: 260 }, backgroundImage: 'url(/images/gallery/gallery-23.jpg)', backgroundSize: 'cover', backgroundPosition: '60% 40%', maskImage: 'linear-gradient(180deg, #000 60%, transparent 100%)', WebkitMaskImage: 'linear-gradient(180deg, #000 60%, transparent 100%)' }} />
-
-      <Container sx={{ position: 'relative', pt: { xs: 1, md: 8 }, pb: { xs: 4, md: 10 }, px: { md: '22%', xl: '24%' }, maxWidth: { md: 'none' }, textAlign: 'center' }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ display: 'inline-flex', px: { xs: 1.5, sm: 2 }, py: 0.85, borderRadius: 20, bgcolor: 'rgba(214,31,44,.08)', border: '1px solid rgba(214,31,44,.18)' }}>
-          <SchoolRoundedIcon sx={{ fontSize: 19, color: RED }} />
-          <Typography component="p" sx={{ color: ROYAL, fontSize: { xs: '.66rem', sm: '.76rem' }, fontWeight: 900, letterSpacing: { xs: '.06em', sm: '.1em' }, textTransform: 'uppercase' }}>
+      <Container sx={{ position: 'relative', pt: { xs: 6, md: 9 }, pb: { xs: 5, md: 10 }, px: { md: '22%', xl: '24%' }, maxWidth: { md: 'none' }, textAlign: 'center' }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ display: 'inline-flex', px: { xs: 1.5, sm: 2 }, py: 0.85, borderRadius: 20, bgcolor: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.28)', backdropFilter: 'blur(8px)' }}>
+          <SchoolRoundedIcon sx={{ fontSize: 19, color: '#ff5964' }} />
+          <Typography component="p" sx={{ color: 'white', fontSize: { xs: '.66rem', sm: '.76rem' }, fontWeight: 900, letterSpacing: { xs: '.06em', sm: '.1em' }, textTransform: 'uppercase' }}>
             {hero.section_label}
           </Typography>
         </Stack>
 
-        <Typography component="h1" variant="h1" sx={{ mt: 2.5, mx: 'auto', maxWidth: 820, color: ROYAL, fontSize: { xs: '2.4rem', sm: '3.2rem', md: '3.3rem', lg: '4rem' }, lineHeight: 1.02 }}>
+        <Typography component="h1" variant="h1" sx={{ mt: 2.5, mx: 'auto', maxWidth: 820, color: 'white', textShadow: '0 2px 24px rgba(0,0,0,.35)', fontSize: { xs: '2.4rem', sm: '3.2rem', md: '3.3rem', lg: '4rem' }, lineHeight: 1.02 }}>
           {hero.title}
         </Typography>
-        <Typography component="p" sx={{ mt: 1.75, color: ROYAL, fontWeight: 900, letterSpacing: '-.02em', fontSize: { xs: '1.25rem', sm: '1.5rem', lg: '1.75rem' }, lineHeight: 1.2 }}>
-          Your CDL Dream. <Box component="span" sx={{ color: RED }}>Your Future.</Box> Your Payment Plan.
+        <Typography component="p" sx={{ mt: 1.75, color: 'white', fontWeight: 900, letterSpacing: '-.02em', fontSize: { xs: '1.25rem', sm: '1.5rem', lg: '1.75rem' }, lineHeight: 1.2 }}>
+          Your CDL Dream. <Box component="span" sx={{ color: '#ff5964' }}>Your Future.</Box> Your Payment Plan.
         </Typography>
-        <Typography sx={{ mt: 2, mx: 'auto', maxWidth: 640, color: 'text.secondary', fontSize: { xs: '1rem', md: '1.08rem' }, lineHeight: 1.7 }}>
+        <Typography sx={{ mt: 2, mx: 'auto', maxWidth: 640, color: 'rgba(255,255,255,.86)', fontSize: { xs: '1rem', md: '1.08rem' }, lineHeight: 1.7 }}>
           {hero.body}
         </Typography>
 
@@ -122,7 +121,7 @@ export function HomeHero() {
           <Button component={RouterLink} to="/cdl-assessment/" variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px -10px rgba(214,31,44,.55)' }}>
             Check your CDL readiness
           </Button>
-          <Button component={RouterLink} to="/our-program/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: ROYAL, borderWidth: 1.5, borderColor: ROYAL, '&:hover': { borderWidth: 1.5, borderColor: ROYAL, bgcolor: 'rgba(8,8,95,.05)' } }}>
+          <Button component={RouterLink} to="/our-program/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: 'white', borderWidth: 1.5, borderColor: 'rgba(255,255,255,.6)', bgcolor: 'rgba(255,255,255,.06)', backdropFilter: 'blur(6px)', '&:hover': { borderWidth: 1.5, borderColor: 'white', bgcolor: 'rgba(255,255,255,.14)' } }}>
             Explore the program
           </Button>
         </Stack>
