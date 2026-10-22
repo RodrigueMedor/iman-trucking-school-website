@@ -10,6 +10,7 @@ import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
 import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptText } from './shared/admissionsChat.mjs'
+import { decryptBytes, decryptText, encryptBytes, encryptText, EVIDENCE_RETENTION_DAYS, evidenceDue, identityKey } from './shared/identityCrypto.mjs'
 import { DOCUMENT_TYPES, IDENTITY_CONSENT_VERSION, REDACT_AFTER_DAYS, dueForRedaction, studentReason, verificationOutcome } from './shared/identity.mjs'
 import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionPaymentAmount } from './shared/tuition.mjs'
 
@@ -30,9 +31,18 @@ const stripe = stripeSecretKey
 // Identity verification may use its own key, ideally a restricted key with
 // only Identity permissions, so it can run in live mode while payments stay
 // in test mode on staging. Falls back to the main key.
+const identityStripeKey = process.env.STRIPE_IDENTITY_SECRET_KEY || stripeSecretKey || ''
 const identityStripe = process.env.STRIPE_IDENTITY_SECRET_KEY
   ? new Stripe(process.env.STRIPE_IDENTITY_SECRET_KEY, { apiVersion: '2024-11-20.acacia' })
   : stripe
+
+// Where staff view a verification's document and selfie images. They stay
+// in Stripe; admissions opens them with their own Stripe team login.
+function identityDashboardUrl(sessionId) {
+  if (!sessionId) return null
+  const mode = /^(sk|rk)_live_/.test(identityStripeKey) ? '' : 'test/'
+  return `https://dashboard.stripe.com/${mode}identity/verification-sessions/${encodeURIComponent(sessionId)}`
+}
 
 // The API server uses the service-role key to verify student sessions and to
 // write payment records and ELP results. The service-role key (and
@@ -840,6 +850,7 @@ async function applyIdentitySession(row, session) {
     .eq('id', row.id).is('decided_by', null).is('redacted_at', null).select().maybeSingle()
   if (error) throw error
   if (data && outcome.status === 'MANUAL_REVIEW' && row.status !== 'MANUAL_REVIEW') await alertIdentityReview(data)
+  if (data && ['verified', 'requires_input'].includes(session.status) && data.status !== 'PENDING') await tryCopyIdentityEvidence(data)
   return data || row
 }
 
@@ -1025,10 +1036,10 @@ async function redactIdentitySessions() {
 app.get('/api/admin/identity-verifications', adminOnly, async (req, res) => {
   try {
     const { data, error } = await supabase.from('cdl_identity_verifications')
-      .select(`${IDENTITY_COLUMNS}, user_id, provider, provider_session_id, document_issuing_country, consent_version, consent_at, decided_by, redacted_at, student:cdl_students(first_name, last_name, email, phone)`)
+      .select(`${IDENTITY_COLUMNS}, user_id, provider, provider_session_id, document_issuing_country, consent_version, consent_at, decided_by, redacted_at, student:cdl_students(first_name, last_name, email, phone), evidence:cdl_identity_evidence(copied_at, purged_at)`)
       .order('updated_at', { ascending: false }).limit(500)
     if (error) throw error
-    res.json({ verifications: data || [] })
+    res.json({ verifications: (data || []).map(row => ({ ...row, stripe_dashboard_url: identityDashboardUrl(row.provider_session_id) })) })
   } catch (error) {
     console.error('Error listing identity verifications:', error)
     res.status(500).json({ error: 'Could not load identity verifications.' })
@@ -1962,7 +1973,7 @@ async function requireSuperAdmin(req, res, next) {
     const { data: caller, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
     if (error) throw error
     if (!caller?.active || caller.role !== 'super_admin' || req.user.email.trim().toLowerCase() !== SUPER_ADMIN_EMAIL) {
-      return res.status(403).json({ error: 'Only super administrators can manage course pricing.' })
+      return res.status(403).json({ error: 'Only the super administrator can do this.' })
     }
     next()
   } catch (error) {
@@ -1972,6 +1983,145 @@ async function requireSuperAdmin(req, res, next) {
 }
 
 const superAdminOnly = [requireUser, requireSuperAdmin, rateLimit]
+
+// ------------------------------------------------------- identity evidence
+// The school keeps an encrypted copy of the document images, selfie, date of
+// birth and document number for 30 days after a decision. Stripe releases
+// these only to a restricted key (rk_...) and only for 48 hours after the
+// verification, so they are copied as soon as Stripe has a result.
+
+let identityEvidenceKey = null
+try {
+  if (process.env.IDENTITY_ENCRYPTION_KEY) identityEvidenceKey = identityKey(process.env.IDENTITY_ENCRYPTION_KEY)
+} catch (error) {
+  console.error(`Identity evidence is disabled: ${error.message}`)
+}
+const EVIDENCE_BUCKET = 'identity-evidence'
+const EVIDENCE_WINDOW_MS = 47 * 3600000
+
+function evidenceCopyEnabled() {
+  return !!(identityEvidenceKey && /^rk_/.test(process.env.STRIPE_IDENTITY_SECRET_KEY || '') && supabase)
+}
+
+async function downloadStripeFile(fileId) {
+  // Stripe requires links to identity files to expire within 30 seconds.
+  const link = await identityStripe.fileLinks.create({ file: fileId, expires_at: Math.floor(Date.now() / 1000) + 30 })
+  const response = await fetch(link.url)
+  if (!response.ok) throw new Error(`Stripe file download failed (${response.status})`)
+  return { bytes: Buffer.from(await response.arrayBuffer()), mime: response.headers.get('content-type') || 'image/jpeg' }
+}
+
+async function copyIdentityEvidence(row) {
+  if (!evidenceCopyEnabled() || !row?.provider_session_id || row.redacted_at) return
+  const { data: existing } = await supabase.from('cdl_identity_evidence').select('verification_id').eq('verification_id', row.id).maybeSingle()
+  if (existing) return
+  const session = await identityStripe.identity.verificationSessions.retrieve(row.provider_session_id, {
+    expand: ['last_verification_report.document.number', 'last_verification_report.document.dob', 'last_verification_report.document.expiration_date'],
+  })
+  const report = session.last_verification_report
+  if (!report) return
+  const wanted = [
+    ['document_front', report.document?.files?.[0]], ['document_back', report.document?.files?.[1]], ['selfie', report.selfie?.selfie],
+  ].filter(([, fileId]) => fileId)
+  const files = []
+  for (const [kind, fileId] of wanted) {
+    const { bytes, mime } = await downloadStripeFile(fileId)
+    const path = `${row.user_id}/${row.id}/${kind}.enc`
+    const { error } = await supabase.storage.from(EVIDENCE_BUCKET)
+      .upload(path, encryptBytes(identityEvidenceKey, bytes), { contentType: 'application/octet-stream', upsert: true })
+    if (error) throw error
+    files.push({ kind, path, mime, size: bytes.length })
+  }
+  const dob = report.document?.dob
+  const { error } = await supabase.from('cdl_identity_evidence').insert({
+    verification_id: row.id, user_id: row.user_id, files,
+    date_of_birth_enc: dob?.year ? encryptText(identityEvidenceKey, `${dob.year}-${String(dob.month).padStart(2, '0')}-${String(dob.day).padStart(2, '0')}`) : null,
+    document_number_enc: report.document?.number ? encryptText(identityEvidenceKey, report.document.number) : null,
+  })
+  if (error && error.code !== '23505') throw error
+  if (!error) await supabase.from('cdl_identity_events').insert({ verification_id: row.id, action: 'EVIDENCE_COPIED', to_status: row.status, detail: files.map(file => file.kind).join(', ') })
+}
+
+// Never fails the caller (webhook or page refresh); the hourly job retries.
+async function tryCopyIdentityEvidence(row) {
+  try {
+    await copyIdentityEvidence(row)
+  } catch (error) {
+    console.error(`Could not copy identity evidence for ${row?.id}:`, error?.message)
+  }
+}
+
+async function purgeIdentityEvidence(evidence, verificationId) {
+  const paths = (evidence.files || []).map(file => file.path)
+  if (paths.length) {
+    const { error } = await supabase.storage.from(EVIDENCE_BUCKET).remove(paths)
+    if (error) throw error
+  }
+  await supabase.from('cdl_identity_evidence').update({ date_of_birth_enc: null, document_number_enc: null, files: [], purged_at: new Date().toISOString() })
+    .eq('verification_id', verificationId).is('purged_at', null)
+  await supabase.from('cdl_identity_events').insert({ verification_id: verificationId, action: 'EVIDENCE_PURGED', detail: `Deleted ${EVIDENCE_RETENTION_DAYS} days after the decision` })
+}
+
+async function maintainIdentityEvidence() {
+  if (!supabase) return
+  // Delete copies 30 days after the decision.
+  const { data: kept } = await supabase.from('cdl_identity_evidence')
+    .select('verification_id, files, verification:cdl_identity_verifications(decided_at)').is('purged_at', null).limit(100)
+  for (const evidence of kept || []) {
+    if (!evidenceDue(evidence.verification?.decided_at)) continue
+    try { await purgeIdentityEvidence(evidence, evidence.verification_id) } catch (error) { console.error(`Could not delete identity evidence ${evidence.verification_id}:`, error?.message) }
+  }
+  // Retry copies Stripe still allows (48 hours after the verification).
+  if (!evidenceCopyEnabled()) return
+  const since = new Date(Date.now() - EVIDENCE_WINDOW_MS).toISOString()
+  const { data: recent } = await supabase.from('cdl_identity_verifications').select('*, evidence:cdl_identity_evidence(verification_id)')
+    .eq('method', 'PROVIDER').in('status', ['VERIFIED', 'FAILED', 'MANUAL_REVIEW']).not('provider_session_id', 'is', null)
+    .is('redacted_at', null).gte('updated_at', since).limit(50)
+  for (const row of recent || []) if (!row.evidence) await tryCopyIdentityEvidence(row)
+}
+
+// Super administrator only; every view is recorded in the audit trail.
+app.get('/api/admin/identity-verifications/:id/evidence', superAdminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  try {
+    const { data: evidence } = await supabase.from('cdl_identity_evidence').select('*').eq('verification_id', req.params.id).maybeSingle()
+    if (!evidence) return res.status(404).json({ error: 'No copy of the identity documents is stored for this verification.' })
+    if (evidence.purged_at) return res.json({ purged_at: evidence.purged_at, copied_at: evidence.copied_at, files: [] })
+    if (!identityEvidenceKey) return res.status(503).json({ error: 'Identity evidence cannot be decrypted: IDENTITY_ENCRYPTION_KEY is not set on the server.' })
+    await supabase.from('cdl_identity_events').insert({ verification_id: req.params.id, actor_id: req.user.id, action: 'EVIDENCE_VIEWED', detail: `Viewed by ${req.user.email}` })
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({
+      copied_at: evidence.copied_at, purged_at: null,
+      date_of_birth: evidence.date_of_birth_enc ? decryptText(identityEvidenceKey, evidence.date_of_birth_enc) : null,
+      document_number: evidence.document_number_enc ? decryptText(identityEvidenceKey, evidence.document_number_enc) : null,
+      files: (evidence.files || []).map(file => ({ kind: file.kind })),
+    })
+  } catch (error) {
+    console.error('Error loading identity evidence:', error)
+    res.status(500).json({ error: 'Could not load the identity documents.' })
+  }
+})
+
+app.get('/api/admin/identity-verifications/:id/evidence/:kind', superAdminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success || !['document_front', 'document_back', 'selfie'].includes(req.params.kind)) {
+    return res.status(400).json({ error: 'Invalid request.' })
+  }
+  try {
+    if (!identityEvidenceKey) return res.status(503).json({ error: 'IDENTITY_ENCRYPTION_KEY is not set on the server.' })
+    const { data: evidence } = await supabase.from('cdl_identity_evidence').select('files, purged_at').eq('verification_id', req.params.id).maybeSingle()
+    const file = !evidence?.purged_at && (evidence?.files || []).find(item => item.kind === req.params.kind)
+    if (!file) return res.status(404).json({ error: 'Image not found.' })
+    const { data, error } = await supabase.storage.from(EVIDENCE_BUCKET).download(file.path)
+    if (error) throw error
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Content-Type', file.mime || 'image/jpeg')
+    res.setHeader('Content-Disposition', 'inline')
+    res.end(decryptBytes(identityEvidenceKey, Buffer.from(await data.arrayBuffer())))
+  } catch (error) {
+    console.error('Error loading identity image:', error)
+    if (!res.headersSent) res.status(500).json({ error: 'Could not load the image.' })
+  }
+})
 const COURSE_PRICING_COLUMNS = `id, code, name, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
 
 app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
@@ -2770,8 +2920,8 @@ export { app }
 const isDirectRun =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 
-// Hourly redaction of biometrics at Stripe (not during tests).
-if (!process.env.VITEST) setInterval(() => { void redactIdentitySessions() }, 3600000).unref()
+// Hourly: redact at Stripe, delete expired school copies, retry copies (not during tests).
+if (!process.env.VITEST) setInterval(() => { void redactIdentitySessions(); void maintainIdentityEvidence() }, 3600000).unref()
 
 if (isDirectRun) {
   const PORT = process.env.PORT || 3001

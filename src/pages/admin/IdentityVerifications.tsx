@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Box, Button, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import CloseRounded from '@mui/icons-material/CloseRounded'
-import { decideIdentity, getIdentityEvents, listIdentityVerifications, toMessage, type AdminIdentityVerification, type IdentityEvent } from '../../portal/api'
+import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded'
+import { decideIdentity, getIdentityEvents, getIdentityEvidence, getIdentityEvidenceImage, listIdentityVerifications, toMessage, type AdminIdentityVerification, type IdentityEvent, type IdentityEvidence } from '../../portal/api'
+import { useAuth } from '../../contexts/AuthContext'
+import { isSuperAdminEmail } from '../../lib/adminAuth'
 import { IDENTITY_STATUS } from '../../portal/IdentityNotice'
 import { formatDate, formatDateTime } from '../../portal/ui'
 
@@ -11,7 +14,7 @@ const METHOD_LABELS: Record<string, string> = {
 }
 const ACTION_LABELS: Record<string, string> = {
   EXEMPTED: 'Exempted as an existing student',
-  STARTED: 'Verification started', PROVIDER_UPDATE: 'Stripe result', ALTERNATIVE_REQUESTED: 'In-person verification requested',
+  STARTED: 'Verification started', EVIDENCE_COPIED: 'Encrypted copy of ID images saved', EVIDENCE_VIEWED: 'ID images viewed', EVIDENCE_PURGED: 'School copy of ID images deleted', PROVIDER_UPDATE: 'Stripe result', ALTERNATIVE_REQUESTED: 'In-person verification requested',
   APPROVED: 'Approved by staff', REJECTED: 'Rejected by staff', RESUBMISSION_REQUESTED: 'Resubmission requested', REDACTED: 'Images and biometrics redacted at Stripe',
 }
 type Decision = 'APPROVE' | 'REJECT' | 'REQUEST_RESUBMISSION'
@@ -42,9 +45,59 @@ function DecisionDialog({ decision, onClose, onSubmit }: { decision: Decision; o
   </Dialog>
 }
 
+const IMAGE_LABELS: Record<string, string> = { document_front: 'Document — front', document_back: 'Document — back', selfie: 'Live selfie' }
+
+/** Encrypted copies kept by the school; super administrator only, each view audited. */
+function EvidencePanel({ row, onViewed }: { row: AdminIdentityVerification; onViewed: () => void }) {
+  const [evidence, setEvidence] = useState<IdentityEvidence | null>(null)
+  const [images, setImages] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => () => { Object.values(images).forEach(url => URL.revokeObjectURL(url)) }, [images])
+
+  if (!row.evidence) return null
+  if (row.evidence.purged_at) return <Alert severity="info" sx={{ mb: 3 }}>The school's copy of the ID images was deleted on {formatDateTime(row.evidence.purged_at)} (30 days after the decision).</Alert>
+
+  const view = async () => {
+    setBusy(true); setError('')
+    try {
+      const result = await getIdentityEvidence(row.id)
+      setEvidence(result)
+      const loaded: Record<string, string> = {}
+      for (const file of result.files) loaded[file.kind] = await getIdentityEvidenceImage(row.id, file.kind)
+      setImages(loaded)
+      onViewed()
+    } catch (err) {
+      setError(toMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+    <Typography fontWeight={900}>ID images and details (super admin)</Typography>
+    <Typography variant="body2" color="text.secondary" mb={1.5}>Encrypted copy kept until 30 days after the decision. Opening it is recorded in the audit trail.</Typography>
+    {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+    {!evidence ? <Button variant="outlined" onClick={() => void view()} disabled={busy}>{busy ? 'Decrypting…' : 'View ID images and details'}</Button> : <>
+      <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 0.5, m: 0, mb: 2, '& dt': { fontWeight: 800, color: 'text.secondary' }, '& dd': { m: 0 } }}>
+        <dt>Date of birth</dt><dd>{evidence.date_of_birth ? formatDate(evidence.date_of_birth) : '—'}</dd>
+        <dt>Document number</dt><dd>{evidence.document_number || '—'}</dd>
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1.5 }}>
+        {evidence.files.map(file => <Box key={file.kind}>
+          <Typography variant="caption" fontWeight={800} color="text.secondary">{IMAGE_LABELS[file.kind] || file.kind}</Typography>
+          {images[file.kind] && <Box component="img" src={images[file.kind]} alt={IMAGE_LABELS[file.kind] || file.kind} sx={{ width: '100%', borderRadius: 1.5, border: 1, borderColor: 'divider', display: 'block' }} />}
+        </Box>)}
+      </Box>
+    </>}
+  </Paper>
+}
+
 function Detail({ row, latest, onClose, onChanged }: { row: AdminIdentityVerification; latest: boolean; onClose: () => void; onChanged: () => Promise<void> }) {
   const [events, setEvents] = useState<IdentityEvent[] | null>(null)
   const [decision, setDecision] = useState<Decision | null>(null)
+  const { profile, session } = useAuth()
+  const superAdmin = profile?.role === 'super_admin' && isSuperAdminEmail(session?.user.email)
   const load = useCallback(() => getIdentityEvents(row.id).then(setEvents).catch(() => setEvents([])), [row.id])
   useEffect(() => { void load() }, [load])
   const fields: [string, string][] = [
@@ -78,6 +131,15 @@ function Detail({ row, latest, onClose, onChanged }: { row: AdminIdentityVerific
         {fields.map(([name, value]) => <Box key={name} sx={{ display: 'contents' }}><dt>{name}</dt><dd>{value}</dd></Box>)}
       </Box>
       {row.decision_note && <Alert severity="info" sx={{ mb: 3 }}>Note: {row.decision_note}</Alert>}
+      {superAdmin && <EvidencePanel row={row} onViewed={() => void load()} />}
+      {row.stripe_dashboard_url && <Box sx={{ mb: 3 }}>
+        <Button variant="outlined" endIcon={<OpenInNewRounded />} href={row.stripe_dashboard_url} target="_blank" rel="noopener noreferrer">Open in Stripe</Button>
+        <Typography variant="body2" color="text.secondary" mt={1}>
+          {row.redacted_at
+            ? 'The images were redacted at Stripe; only the result remains.'
+            : 'View the verification in the Stripe Dashboard (sign in with your Stripe team account). Stripe redacts its copy 30 days after a decision.'}
+        </Typography>
+      </Box>}
       {latest && <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} mb={3}>
         {row.status !== 'VERIFIED' && <Button variant="contained" color="secondary" onClick={() => setDecision('APPROVE')}>Approve</Button>}
         <Button variant="outlined" onClick={() => setDecision('REQUEST_RESUBMISSION')}>Request resubmission</Button>

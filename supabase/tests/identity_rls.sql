@@ -102,10 +102,20 @@ do $$ begin
 end $$;
 select it.reset();
 
+insert into public.cdl_identity_evidence (verification_id, user_id, date_of_birth_enc, files)
+values ('22000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-0000000000a1', 'encrypted', '[]');
+
 select it.act_as('20000000-0000-0000-0000-0000000000c3');
-do $$ begin
+do $$
+declare blocked boolean := false;
+begin
   assert (select count(*) from public.cdl_identity_events where verification_id = '22000000-0000-0000-0000-000000000001') = 2,
     'admins can read the audit trail';
+  begin
+    perform 1 from public.cdl_identity_evidence;
+  exception when insufficient_privilege then blocked := true;
+  end;
+  assert blocked, 'stored ID evidence is not readable from the database, even by admins';
 end $$;
 select it.reset();
 

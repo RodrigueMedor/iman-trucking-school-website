@@ -407,7 +407,7 @@ describe('identity verification', () => {
 
   it('requires consent before starting', async () => {
     expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD' })).status).toBe(400)
-    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'PASSPORT', biometricConsent: true, consentVersion: 'identity-v1-2026-10' })).status).toBe(400)
+    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'PASSPORT', biometricConsent: true, consentVersion: 'identity-v2-2026-10' })).status).toBe(400)
   })
 
   it('records a mismatched face as failed, once, and lets the student retake', async () => {
@@ -428,7 +428,7 @@ describe('identity verification', () => {
     await pending('vs_test_spoof', 'GREEN_CARD')
     await deliver('identity.verification_session.requires_input', session('vs_test_spoof', 'requires_input', { last_error: { code: 'selfie_manipulated' } }))
     expect((await latest()).status).toBe('MANUAL_REVIEW')
-    const res = await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD', biometricConsent: true, consentVersion: 'identity-v1-2026-10' })
+    const res = await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD', biometricConsent: true, consentVersion: 'identity-v2-2026-10' })
     expect(res.status).toBe(409)
   })
 
@@ -441,6 +441,14 @@ describe('identity verification', () => {
     const after = await latest()
     expect([after.status, after.failure_code, after.decided_by]).toEqual(['FAILED', 'resubmission_requested', USERS['token-admin'].id])
     expect(after.failure_reason).toMatch(/Glare on the card/)
+  })
+
+  it('shows stored ID images only to the super administrator', async () => {
+    const row = await latest()
+    for (const token of ['token-admin', 'token-new']) {
+      expect((await call(token, 'GET', `/api/admin/identity-verifications/${row.id}/evidence`)).status).toBe(403)
+      expect((await call(token, 'GET', `/api/admin/identity-verifications/${row.id}/evidence/selfie`)).status).toBe(403)
+    }
   })
 
   it('never lets a late provider result overwrite a staff decision', async () => {

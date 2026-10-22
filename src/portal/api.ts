@@ -126,12 +126,15 @@ export type MyIdentity = { status: IdentityStatus; canStart: boolean; verificati
 export type AdminIdentityVerification = IdentityVerification & {
   user_id: string; provider: string; provider_session_id: string | null; provider_status: string; provider_document_type: string | null
   document_issuing_country: string | null; name_matches: boolean | null; consent_version: string; consent_at: string; decided_by: string | null; redacted_at: string | null
+  /** Stripe Dashboard page with the document and selfie images (staff sign in to Stripe). */
+  stripe_dashboard_url: string | null
+  evidence?: { copied_at: string; purged_at: string | null } | null
   student?: { first_name: string; last_name: string; email: string; phone: string | null } | null
 }
 export type IdentityEvent = { id: number; action: string; from_status: string | null; to_status: string | null; detail: string; actor_name: string; created_at: string }
 
 /** Must match IDENTITY_CONSENT_VERSION in shared/identity.mjs. */
-export const IDENTITY_CONSENT_VERSION = 'identity-v1-2026-10'
+export const IDENTITY_CONSENT_VERSION = 'identity-v2-2026-10'
 
 export function getMyIdentity() {
   return authedFetch<MyIdentity>('/api/me/identity')
@@ -152,6 +155,23 @@ export function listIdentityVerifications() {
 
 export function getIdentityEvents(verificationId: string) {
   return authedFetch<{ events: IdentityEvent[] }>(`/api/admin/identity-verifications/${encodeURIComponent(verificationId)}/events`).then(result => result.events)
+}
+
+export type IdentityEvidence = { copied_at: string; purged_at: string | null; date_of_birth?: string | null; document_number?: string | null; files: { kind: 'document_front' | 'document_back' | 'selfie' }[] }
+
+/** Super administrator only; the server records each view in the audit trail. */
+export function getIdentityEvidence(verificationId: string) {
+  return authedFetch<IdentityEvidence>(`/api/admin/identity-verifications/${encodeURIComponent(verificationId)}/evidence`)
+}
+
+/** Decrypted image as an object URL; revoke it when no longer shown. */
+export async function getIdentityEvidenceImage(verificationId: string, kind: string) {
+  const { data } = await client().auth.getSession()
+  const token = data.session?.access_token
+  if (!token) throw new ApiError('Your session has expired. Sign in again.', 401)
+  const response = await fetch(getApiUrl(`/api/admin/identity-verifications/${encodeURIComponent(verificationId)}/evidence/${encodeURIComponent(kind)}`), { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+  if (!response.ok) throw new ApiError('The image could not be loaded.', response.status)
+  return URL.createObjectURL(await response.blob())
 }
 
 export function decideIdentity(verificationId: string, action: 'APPROVE' | 'REJECT' | 'REQUEST_RESUBMISSION', reason: string) {

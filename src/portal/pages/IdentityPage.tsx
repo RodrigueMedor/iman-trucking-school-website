@@ -136,14 +136,16 @@ export function IdentityPage() {
         <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#f5f5f8', mb: 2 }}>
           <Typography variant="subtitle2" fontWeight={900} mb={0.75}>Biometric consent</Typography>
           <Typography variant="body2" color="text.secondary" lineHeight={1.7}>
-            To confirm you are the person on your document, IMAN Trucking School uses Stripe Identity. Stripe will capture images of your document and a live
-            selfie and compare your face to the document photo using facial geometry. IMAN receives only the result, your document type and its expiration
-            date — not your images or facial data. We ask Stripe to delete your images 30 days after a decision; Stripe may keep the facial data it derives for
-            up to one year to prevent fraud. You may instead verify in person at the school (below).
+            To confirm you are the person on your document, IMAN Trucking School uses Stripe Identity. Stripe will capture images of the front and back of
+            your document and a live selfie, and compare your face to the document photo using facial geometry. IMAN Trucking School keeps an encrypted copy
+            of your document images, your selfie, your date of birth and your document number to verify your enrollment. Only the school director can view
+            them, every view is recorded, and they are deleted 30 days after your verification is decided. IMAN does not receive or keep facial geometry.
+            Stripe deletes its copy of your images 30 days after the decision and may keep the facial data it derives for up to one year to prevent fraud.
+            You may instead verify in person at the school (below).
           </Typography>
         </Box>
         <FormControlLabel sx={{ mb: 2, alignItems: 'flex-start' }} control={<Checkbox checked={consent} onChange={event => setConsent(event.target.checked)} disabled={busy} sx={{ mt: -0.75 }} />}
-          label={<Typography fontWeight={700}>I consent to Stripe collecting and comparing my document images and selfie, including biometric facial data, to verify my identity.</Typography>} />
+          label={<Typography fontWeight={700}>I consent to Stripe collecting and comparing my document images and selfie, including biometric facial data, and to IMAN Trucking School keeping an encrypted copy of my images, date of birth and document number for 30 days after the decision, to verify my identity.</Typography>} />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
           <Button variant="contained" color="secondary" size="large" startIcon={<CameraAltRounded />} disabled={!documentType || !consent || busy} onClick={() => void start()} sx={{ minHeight: 48 }}>

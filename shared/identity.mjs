@@ -1,6 +1,7 @@
 // Identity verification rules shared by the API server and its tests.
 
-export const IDENTITY_CONSENT_VERSION = 'identity-v1-2026-10'
+// v2: the school keeps encrypted copies of the images and document data for 30 days.
+export const IDENTITY_CONSENT_VERSION = 'identity-v2-2026-10'
 
 // Stripe Identity document types for each choice. A US Green Card is a
 // government-issued ID card; anything Stripe cannot classify goes to manual
