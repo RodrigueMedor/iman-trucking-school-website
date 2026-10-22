@@ -10,6 +10,7 @@ import FolderRounded from '@mui/icons-material/FolderRounded'
 import EventRounded from '@mui/icons-material/EventRounded'
 import PersonRounded from '@mui/icons-material/PersonRounded'
 import PaymentsRounded from '@mui/icons-material/PaymentsRounded'
+import BadgeRounded from '@mui/icons-material/BadgeRounded'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
 import MenuRounded from '@mui/icons-material/MenuRounded'
 import HomeRounded from '@mui/icons-material/HomeRounded'
@@ -21,6 +22,7 @@ const WIDTH = 272
 
 const NAV = [
   { label: 'Dashboard', to: '/portal/', icon: <DashboardRounded />, exact: true },
+  { label: 'Identity verification', to: '/portal/identity', icon: <BadgeRounded /> },
   { label: 'Apply for CDL Training', to: '/portal/apply/training', icon: <LocalShippingRounded /> },
   { label: 'Apply for CDL Assessment', to: '/portal/apply/assessment', icon: <FactCheckRounded /> },
   { label: 'My Applications', to: '/portal/applications/', icon: <AssignmentRounded /> },

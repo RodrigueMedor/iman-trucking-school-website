@@ -17,6 +17,7 @@ import { StatusChip } from '../StatusChip'
 import { PayFeeDialog } from '../PayFeeDialog'
 import { cardSx, EmptyState, formatDate, formatDateTime, ListSkeleton, NAVY, PageHeader, SectionCard } from '../ui'
 import { FinancingCallout } from '../../components/financing/FinancingCallout'
+import { IdentityNotice, useIdentityStatus } from '../IdentityNotice'
 
 const ACTIONS: Record<ApplicationType, { icon: ReactElement; blurb: string; to: string }> = {
   TRAINING: { icon: <LocalShippingRounded />, blurb: 'Enroll in Class A or Class B CDL training.', to: '/portal/apply/training' },
@@ -101,6 +102,7 @@ export function Dashboard() {
   const [error, setError] = useState('')
   const [payOpen, setPayOpen] = useState(false)
   const payment = params.get('payment')
+  const identity = useIdentityStatus()
 
   useEffect(() => {
     let alive = true
@@ -138,6 +140,7 @@ export function Dashboard() {
         title={`Welcome${student?.first_name ? `, ${student.first_name}` : ''}`}
         subtitle="Apply, track your applications and manage your documents in one place."
       />
+      <IdentityNotice status={identity} action="submit a training or assessment application" />
 
       {payment === 'success' && (
         <Alert severity="success" sx={{ mb: 3 }} onClose={() => setParams({}, { replace: true })}>

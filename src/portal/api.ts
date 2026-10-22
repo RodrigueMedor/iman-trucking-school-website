@@ -116,6 +116,48 @@ export type FinancingStatus = { id: string; tuition_account_id: string | null; s
 export type SelfPayOption = { courseId: string; course: { name: string; code: string; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean }; pricing: CoursePrice; application: { id: string; reference_no: string } | null }
 export type BillingSummary = { accounts: TuitionAccount[]; installments: TuitionInstallment[]; payments: TuitionPayment[]; agreements: TuitionAgreement[]; adjustments: TuitionAdjustment[]; financing: FinancingStatus; payable?: SelfPayOption[] }
 
+export type IdentityDocumentType = 'DRIVING_LICENSE' | 'GREEN_CARD'
+export type IdentityStatus = 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'FAILED' | 'MANUAL_REVIEW'
+export type IdentityVerification = {
+  id: string; method: 'PROVIDER' | 'ALTERNATIVE' | 'EXEMPT'; document_type: IdentityDocumentType | null; status: Exclude<IdentityStatus, 'NOT_STARTED'>
+  failure_code: string; failure_reason: string; document_expires_on: string | null; decided_at: string | null; decision_note: string; created_at: string; updated_at: string
+}
+export type MyIdentity = { status: IdentityStatus; canStart: boolean; verification: IdentityVerification | null }
+export type AdminIdentityVerification = IdentityVerification & {
+  user_id: string; provider: string; provider_session_id: string | null; provider_status: string; provider_document_type: string | null
+  document_issuing_country: string | null; name_matches: boolean | null; consent_version: string; consent_at: string; decided_by: string | null; redacted_at: string | null
+  student?: { first_name: string; last_name: string; email: string; phone: string | null } | null
+}
+export type IdentityEvent = { id: number; action: string; from_status: string | null; to_status: string | null; detail: string; actor_name: string; created_at: string }
+
+/** Must match IDENTITY_CONSENT_VERSION in shared/identity.mjs. */
+export const IDENTITY_CONSENT_VERSION = 'identity-v1-2026-10'
+
+export function getMyIdentity() {
+  return authedFetch<MyIdentity>('/api/me/identity')
+}
+
+/** Starts or resumes verification; returns Stripe's hosted verification URL. */
+export function startIdentityVerification(documentType: IdentityDocumentType) {
+  return authedFetch<{ url: string }>('/api/me/identity/sessions', { method: 'POST', body: JSON.stringify({ documentType, biometricConsent: true, consentVersion: IDENTITY_CONSENT_VERSION }) })
+}
+
+export function requestAlternativeVerification(documentType: IdentityDocumentType, reason?: string) {
+  return authedFetch<MyIdentity>('/api/me/identity/alternative', { method: 'POST', body: JSON.stringify({ documentType, ...(reason ? { reason } : {}) }) })
+}
+
+export function listIdentityVerifications() {
+  return authedFetch<{ verifications: AdminIdentityVerification[] }>('/api/admin/identity-verifications').then(result => result.verifications)
+}
+
+export function getIdentityEvents(verificationId: string) {
+  return authedFetch<{ events: IdentityEvent[] }>(`/api/admin/identity-verifications/${encodeURIComponent(verificationId)}/events`).then(result => result.events)
+}
+
+export function decideIdentity(verificationId: string, action: 'APPROVE' | 'REJECT' | 'REQUEST_RESUBMISSION', reason: string) {
+  return authedFetch(`/api/admin/identity-verifications/${encodeURIComponent(verificationId)}/decision`, { method: 'POST', body: JSON.stringify({ action, reason }) })
+}
+
 export const PAYMENT_METHOD_LABELS: Record<string, string> = { stripe: 'Card (Stripe)', cash: 'Cash', check: 'Check', money_order: 'Money order', other: 'Other' }
 
 const BUCKET = 'student-documents'

@@ -4,6 +4,7 @@ import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded'
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded'
+import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded'
 import SellRoundedIcon from '@mui/icons-material/SellRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
@@ -19,6 +20,7 @@ const links = [
   ['All page content', '/admin/content/', <ArticleRoundedIcon />],
   ['Applications', '/admin/cdl-applications/', <AssignmentRoundedIcon />],
   ['Tuition accounts', '/admin/tuition-accounts/', <AccountBalanceRoundedIcon />],
+  ['Identity verification', '/admin/identity-verifications/', <BadgeRoundedIcon />],
   ['Financing referrals', '/admin/financing-referrals/', <AccountBalanceRoundedIcon />],
 ] as const
 // Pricing is changed only by the super administrator (see SuperAdminRoute).

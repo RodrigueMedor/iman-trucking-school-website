@@ -19,6 +19,7 @@ import {
 } from '../schemas'
 import { DocumentUploader } from '../DocumentUploader'
 import { PortalLoading } from '../RequireStudent'
+import { IdentityNotice, useIdentityStatus } from '../IdentityNotice'
 import { cardSx, formatDate, formatDateTime, formatSessionDate, NAVY, PageHeader } from '../ui'
 import { FinancingCallout } from '../../components/financing/FinancingCallout'
 
@@ -83,6 +84,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const steps = STEPS[type]
+  const identity = useIdentityStatus()
   const requestedId = params.get('id')
   const requestedStep = params.get('step') as StepKey | null
   const stepIndex = Math.max(0, requestedStep ? steps.indexOf(requestedStep) : 0)
@@ -370,6 +372,7 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
         subtitle={<>Reference <strong>{app.reference_no}</strong>{savedAt ? ` · Saved ${savedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : app.status === 'DRAFT' ? ` · Draft saved ${formatDate(app.updated_at)}` : ''}</>}
         action={<Button variant="outlined" startIcon={<SaveRounded />} onClick={() => void saveAndExit()} disabled={busy}>Save & finish later</Button>}
       />
+      <IdentityNotice status={identity} action="submit your application" />
 
       {app.status === 'INFO_REQUIRED' && (
         <Alert severity="warning" sx={{ mb: 3 }}>

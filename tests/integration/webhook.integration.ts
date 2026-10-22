@@ -18,6 +18,7 @@ const USERS: Record<string, { id: string; email: string }> = {
   'token-student': { id: '50000000-0000-0000-0000-0000000000a1', email: 'student@test.local' },
   'token-other': { id: '50000000-0000-0000-0000-0000000000b2', email: 'other@test.local' },
   'token-admin': { id: '50000000-0000-0000-0000-0000000000c3', email: 'admin@test.local' },
+  'token-new': { id: '50000000-0000-0000-0000-0000000000d4', email: 'new@test.local' },
 }
 
 const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url')
@@ -375,5 +376,100 @@ describe('CDL Training pricing with optional housing', () => {
     expect((await account()).tuition_cents).toBe(392900)
     const receipt = await call('token-other', 'GET', `/api/payments/${id}/receipt`)
     expect([receipt.status, receipt.headers.get('content-type')]).toEqual([200, 'application/pdf'])
+  })
+})
+
+describe('identity verification', () => {
+  const NEW = USERS['token-new'].id
+  let studentId = ''
+  let courseId = ''
+  const latest = async () => (await db.from('cdl_identity_verifications').select('*').eq('user_id', NEW).order('created_at', { ascending: false }).limit(1).single()).data
+  const pending = async (sessionId: string, documentType = 'DRIVING_LICENSE') => {
+    const { data, error } = await db.from('cdl_identity_verifications').insert({
+      user_id: NEW, student_id: studentId, document_type: documentType, provider_session_id: sessionId, provider_status: 'requires_input',
+      consent_version: 'identity-v1-2026-10', consent_at: new Date().toISOString(),
+    }).select().single()
+    if (error) throw error
+    return data
+  }
+  const session = (id: string, status: string, extra: Record<string, unknown> = {}) => ({ id, object: 'identity.verification_session', status, last_error: null, ...extra })
+
+  beforeAll(async () => {
+    studentId = (await db.from('cdl_students').select('id').eq('user_id', NEW).single()).data!.id
+    courseId = (await db.from('cdl_courses').select('id').eq('code', 'CDL-B').single()).data!.id
+  })
+
+  it('starts unverified without blocking payments', async () => {
+    expect(await (await call('token-new', 'GET', '/api/me/identity')).json()).toMatchObject({ status: 'NOT_STARTED', canStart: true })
+    // Identity gates application submission (database trigger), not payments.
+    expect((await call('token-new', 'POST', '/api/me/tuition-accounts', { courseId })).status).toBe(201)
+  })
+
+  it('requires consent before starting', async () => {
+    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD' })).status).toBe(400)
+    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'PASSPORT', biometricConsent: true, consentVersion: 'identity-v1-2026-10' })).status).toBe(400)
+  })
+
+  it('records a mismatched face as failed, once, and lets the student retake', async () => {
+    await pending('vs_test_face')
+    const eventId = `evt_${randomUUID()}`
+    const failed = session('vs_test_face', 'requires_input', { last_error: { code: 'selfie_face_mismatch', reason: 'mismatch' } })
+    expect((await deliver('identity.verification_session.requires_input', failed, eventId)).status).toBe(200)
+    const row = await latest()
+    expect([row.status, row.failure_code]).toEqual(['FAILED', 'selfie_face_mismatch'])
+    expect(row.failure_reason).toMatch(/did not match/)
+    expect((await deliver('identity.verification_session.requires_input', failed, eventId)).body).toEqual({ received: true, duplicate: true })
+    const { count } = await db.from('cdl_identity_events').select('id', { count: 'exact', head: true }).eq('verification_id', row.id)
+    expect(count).toBe(2) // started, failed
+    expect(await (await call('token-new', 'GET', '/api/me/identity')).json()).toMatchObject({ status: 'FAILED', canStart: true })
+  })
+
+  it('sends a manipulated selfie (failed liveness) to manual review and stops new attempts', async () => {
+    await pending('vs_test_spoof', 'GREEN_CARD')
+    await deliver('identity.verification_session.requires_input', session('vs_test_spoof', 'requires_input', { last_error: { code: 'selfie_manipulated' } }))
+    expect((await latest()).status).toBe('MANUAL_REVIEW')
+    const res = await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD', biometricConsent: true, consentVersion: 'identity-v1-2026-10' })
+    expect(res.status).toBe(409)
+  })
+
+  it('lets only admins review, and records the decision', async () => {
+    const row = await latest()
+    const path = `/api/admin/identity-verifications/${row.id}/decision`
+    expect((await call('token-new', 'POST', path, { action: 'APPROVE', reason: 'self approval' })).status).toBe(403)
+    expect((await call('token-new', 'GET', '/api/admin/identity-verifications')).status).toBe(403)
+    expect((await call('token-admin', 'POST', path, { action: 'REQUEST_RESUBMISSION', reason: 'Glare on the card' })).status).toBe(200)
+    const after = await latest()
+    expect([after.status, after.failure_code, after.decided_by]).toEqual(['FAILED', 'resubmission_requested', USERS['token-admin'].id])
+    expect(after.failure_reason).toMatch(/Glare on the card/)
+  })
+
+  it('never lets a late provider result overwrite a staff decision', async () => {
+    const before = await latest()
+    await deliver('identity.verification_session.verified', session('vs_test_spoof', 'verified', { last_verification_report: { document: { first_name: 'Nia', last_name: 'Newman', type: 'id_card' } } }))
+    expect((await latest()).status).toBe(before.status)
+  })
+
+  it('offers in-person verification without biometrics, approved by an admin', async () => {
+    const res = await call('token-new', 'POST', '/api/me/identity/alternative', { documentType: 'GREEN_CARD', reason: 'No camera' })
+    expect(res.status).toBe(201)
+    const row = await latest()
+    expect([row.method, row.status, row.provider_session_id]).toEqual(['ALTERNATIVE', 'MANUAL_REVIEW', null])
+    expect((await call('token-admin', 'POST', `/api/admin/identity-verifications/${row.id}/decision`, { action: 'APPROVE', reason: 'Checked Green Card at the front desk' })).status).toBe(200)
+    expect((await latest()).status).toBe('VERIFIED')
+    const events = (await (await call('token-admin', 'GET', `/api/admin/identity-verifications/${row.id}/events`)).json()).events
+    expect(events.map((event: { action: string }) => event.action)).toEqual(['ALTERNATIVE_REQUESTED', 'APPROVED'])
+    expect(events[1].detail).toMatch(/front desk/)
+  })
+
+  it('sends a provider-verified document with another name to manual review', async () => {
+    // A different student whose document shows someone else's name.
+    const { data: other } = await db.from('cdl_students').select('id').eq('user_id', USERS['token-student'].id).single()
+    const { data: row } = await db.from('cdl_identity_verifications').insert({
+      user_id: USERS['token-student'].id, student_id: other!.id, document_type: 'DRIVING_LICENSE', provider_session_id: 'vs_test_name',
+      consent_version: 'identity-v1-2026-10', consent_at: new Date().toISOString(),
+    }).select().single()
+    await deliver('identity.verification_session.verified', session('vs_test_name', 'verified', { last_verification_report: { document: { first_name: 'Someone', last_name: 'Else', type: 'driving_license', issuing_country: 'US', expiration_date: { day: 1, month: 2, year: 2030 } } } }))
+    const { data: after } = await db.from('cdl_identity_verifications').select('*').eq('id', row!.id).single()
+    expect([after!.status, after!.failure_code, after!.name_matches, after!.document_expires_on]).toEqual(['MANUAL_REVIEW', 'name_mismatch', false, '2030-02-01'])
   })
 })

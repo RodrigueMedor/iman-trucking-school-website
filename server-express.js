@@ -10,6 +10,7 @@ import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
 import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptText } from './shared/admissionsChat.mjs'
+import { DOCUMENT_TYPES, IDENTITY_CONSENT_VERSION, REDACT_AFTER_DAYS, dueForRedaction, studentReason, verificationOutcome } from './shared/identity.mjs'
 import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionPaymentAmount } from './shared/tuition.mjs'
 
 dotenv.config()
@@ -25,6 +26,13 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: '2024-11-20.acacia' })
   : null
+
+// Identity verification may use its own key, ideally a restricted key with
+// only Identity permissions, so it can run in live mode while payments stay
+// in test mode on staging. Falls back to the main key.
+const identityStripe = process.env.STRIPE_IDENTITY_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_IDENTITY_SECRET_KEY, { apiVersion: '2024-11-20.acacia' })
+  : stripe
 
 // The API server uses the service-role key to verify student sessions and to
 // write payment records and ELP results. The service-role key (and
@@ -781,6 +789,305 @@ async function requireTuitionAdmin(req, res, next) {
 }
 
 const adminOnly = [requireUser, requireTuitionAdmin, rateLimit]
+
+// ---------------------------------------------------------------------------
+// Identity verification (Stripe Identity: document + live selfie). Images and
+// biometrics stay with Stripe; we keep the outcome and an audit trail. A
+// verified identity is not proof of DMV license or USCIS immigration status.
+// ---------------------------------------------------------------------------
+
+const IDENTITY_COLUMNS = 'id, method, document_type, status, provider_status, provider_document_type, document_expires_on, name_matches, failure_code, failure_reason, decided_at, decision_note, created_at, updated_at'
+const IDENTITY_ATTEMPTS_PER_DAY = 5
+
+// Where Stripe sends the student after the hosted verification flow.
+function identityReturnUrl(req) {
+  const url = new URL(checkoutReturnUrl(req, '/portal/identity', 'returned'))
+  url.search = 'identity=returned'
+  return url.toString()
+}
+
+async function latestIdentity(userId) {
+  const { data } = await supabase.from('cdl_identity_verifications').select('*')
+    .eq('user_id', userId).order('created_at', { ascending: false }).limit(1)
+  return data?.[0] || null
+}
+
+// Applies a Stripe VerificationSession to our record. A decision made by an
+// administrator and redacted records are never overwritten by the provider.
+async function applyIdentitySession(row, session) {
+  if (!row || row.decided_by || row.redacted_at) return row
+  let document = null
+  if (session.status === 'verified') {
+    const full = session.last_verification_report?.document ? session
+      : await identityStripe.identity.verificationSessions.retrieve(session.id, { expand: ['last_verification_report'] })
+    document = full.last_verification_report?.document || null
+  }
+  const { data: student } = await supabase.from('cdl_students').select('first_name, last_name').eq('id', row.student_id).maybeSingle()
+  const outcome = verificationOutcome({ session, document, student: student || {} })
+  const expires = document?.expiration_date
+  const now = new Date().toISOString()
+  const patch = {
+    status: outcome.status, provider_status: session.status, failure_code: outcome.failureCode,
+    failure_reason: outcome.failureCode ? studentReason(outcome.failureCode, outcome.reason) : '',
+    name_matches: outcome.nameMatches ?? row.name_matches, last_action: 'PROVIDER_UPDATE', updated_at: now,
+    decided_at: ['VERIFIED', 'FAILED'].includes(outcome.status) ? row.decided_at || now : null,
+    ...(document ? {
+      provider_document_type: document.type || null, document_issuing_country: document.issuing_country || null,
+      document_expires_on: expires?.year ? `${expires.year}-${String(expires.month).padStart(2, '0')}-${String(expires.day).padStart(2, '0')}` : null,
+    } : {}),
+  }
+  const { data, error } = await supabase.from('cdl_identity_verifications').update(patch)
+    .eq('id', row.id).is('decided_by', null).is('redacted_at', null).select().maybeSingle()
+  if (error) throw error
+  if (data && outcome.status === 'MANUAL_REVIEW' && row.status !== 'MANUAL_REVIEW') await alertIdentityReview(data)
+  return data || row
+}
+
+async function alertIdentityReview(row) {
+  if (!resend) return
+  try {
+    const { data: student } = await supabase.from('cdl_students').select('first_name, last_name').eq('id', row.student_id).maybeSingle()
+    const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || 'A student'
+    await resend.emails.send({
+      from: emailFrom, to: adminNotificationEmail, subject: `Identity verification needs review - ${name}`,
+      html: `<p>${escapeHtml(name)}'s identity verification needs a manual review (${escapeHtml(row.method === 'ALTERNATIVE' ? 'in-person verification requested' : row.failure_code || 'flagged')}).</p><p>Open Admin → Identity verification to review it.</p>`,
+    })
+  } catch (error) {
+    console.error('Failed to send identity review alert:', error)
+  }
+}
+
+function identityForStudent(row) {
+  if (!row) return { status: 'NOT_STARTED', verification: null, canStart: true }
+  const { id, method, document_type, status, failure_code, failure_reason, document_expires_on, decided_at, decision_note, created_at, updated_at } = row
+  return {
+    status, canStart: status === 'FAILED' || (status === 'PENDING' && row.provider_status !== 'processing'),
+    verification: { id, method, document_type, status, failure_code, failure_reason, document_expires_on, decided_at, decision_note, created_at, updated_at },
+  }
+}
+
+// Current status. A pending attempt is refreshed from Stripe so a student
+// returning from verification sees the result even if the webhook is late.
+app.get('/api/me/identity', requireUser, requireStudent, async (req, res) => {
+  try {
+    let row = await latestIdentity(req.user.id)
+    if (row?.status === 'PENDING' && row.provider_session_id && identityStripe) {
+      try {
+        row = await applyIdentitySession(row, await identityStripe.identity.verificationSessions.retrieve(row.provider_session_id))
+      } catch (error) {
+        console.warn('Could not refresh identity session:', error?.message)
+      }
+    }
+    res.json(identityForStudent(row))
+  } catch (error) {
+    console.error('Error loading identity verification:', error)
+    res.status(500).json({ error: 'Could not load your identity verification.' })
+  }
+})
+
+const identityStartSchema = z.object({
+  documentType: z.enum(['DRIVING_LICENSE', 'GREEN_CARD']),
+  biometricConsent: z.literal(true),
+  consentVersion: z.literal(IDENTITY_CONSENT_VERSION),
+}).strict()
+
+// Starts (or resumes) a Stripe Identity session and returns its hosted URL.
+// The hosted flow captures the document and a live selfie with the camera;
+// uploading an existing photo is not offered (require_live_capture).
+app.post('/api/me/identity/sessions', studentOnly, async (req, res) => {
+  try {
+    const unavailable = requireClients(res)
+    if (unavailable) return res.status(503).json(unavailable)
+    const parsed = identityStartSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose your document and agree to the biometric consent to continue.' })
+    const { data: student } = await supabase.from('cdl_students').select('id, email').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+
+    let current = await latestIdentity(req.user.id)
+    if (current?.status === 'VERIFIED') return res.status(409).json({ error: 'Your identity is already verified.' })
+    if (current?.status === 'MANUAL_REVIEW') return res.status(409).json({ error: 'Admissions is reviewing your verification. We will contact you.' })
+    if (current?.status === 'PENDING' && current.provider_session_id) {
+      // A session Stripe no longer knows (for example after the key changed
+      // between test and live mode) is treated as abandoned.
+      const session = await identityStripe.identity.verificationSessions.retrieve(current.provider_session_id)
+        .catch(error => (error?.code === 'resource_missing' ? { id: current.provider_session_id, status: 'canceled', last_error: null } : Promise.reject(error)))
+      if (session.status === 'processing') return res.status(409).json({ error: 'Your verification is being processed. Check back in a few minutes.' })
+      if (session.status === 'requires_input' && !session.last_error && session.url && current.document_type === parsed.data.documentType) {
+        return res.json({ url: session.url, reused: true })
+      }
+      current = await applyIdentitySession(current, session)
+      // An unfinished attempt is closed so it cannot be completed later.
+      if (['requires_input', 'processing'].includes(session.status) && current.status === 'PENDING') {
+        try { await identityStripe.identity.verificationSessions.cancel(session.id) } catch { /* already finished */ }
+        await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', provider_status: 'canceled', failure_code: 'abandoned', failure_reason: studentReason('abandoned'), last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', current.id).eq('status', 'PENDING')
+      }
+      if (current.status === 'VERIFIED') return res.status(409).json({ error: 'Your identity is already verified.' })
+      if (current.status === 'MANUAL_REVIEW') return res.status(409).json({ error: 'Admissions is reviewing your verification. We will contact you.' })
+    }
+
+    const since = new Date(Date.now() - 86400000).toISOString()
+    const { count } = await supabase.from('cdl_identity_verifications').select('id', { count: 'exact', head: true })
+      .eq('user_id', req.user.id).eq('method', 'PROVIDER').gte('created_at', since)
+    if ((count || 0) >= IDENTITY_ATTEMPTS_PER_DAY) {
+      return res.status(429).json({ error: 'You have reached the number of verification attempts for today. Try again tomorrow or request in-person verification.' })
+    }
+
+    const now = new Date().toISOString()
+    const { data: row, error } = await supabase.from('cdl_identity_verifications').insert({
+      user_id: req.user.id, student_id: student.id, method: 'PROVIDER', document_type: parsed.data.documentType,
+      consent_version: IDENTITY_CONSENT_VERSION, consent_at: now, consent_ip: req.ip || null,
+    }).select().single()
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'A verification is already in progress. Refresh the page.' })
+      throw error
+    }
+    let session
+    try {
+      session = await identityStripe.identity.verificationSessions.create({
+        type: 'document', client_reference_id: row.id,
+        metadata: { verification_id: row.id, user_id: req.user.id, student_id: student.id, document_type: parsed.data.documentType },
+        options: { document: { allowed_types: DOCUMENT_TYPES[parsed.data.documentType].stripeTypes, require_live_capture: true, require_matching_selfie: true } },
+        ...(student.email ? { provided_details: { email: student.email } } : {}),
+        return_url: identityReturnUrl(req),
+      }, { idempotencyKey: `identity-${row.id}` })
+    } catch (error) {
+      await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', failure_code: 'provider_error', failure_reason: 'Verification could not be started. Please try again.', last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', row.id)
+      throw error
+    }
+    await supabase.from('cdl_identity_verifications').update({ provider_session_id: session.id, provider_status: session.status, updated_at: new Date().toISOString() }).eq('id', row.id)
+    res.status(201).json({ url: session.url })
+  } catch (error) {
+    console.error('Error starting identity verification:', error)
+    res.status(500).json({ error: 'Could not start identity verification. Please try again.' })
+  }
+})
+
+// Accessible alternative when the camera or biometric check cannot be used:
+// admissions verifies the document in person and records the decision.
+app.post('/api/me/identity/alternative', studentOnly, async (req, res) => {
+  try {
+    const parsed = z.object({ documentType: z.enum(['DRIVING_LICENSE', 'GREEN_CARD']), reason: z.string().trim().max(500).optional() }).strict().safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose the document you will bring.' })
+    const { data: student } = await supabase.from('cdl_students').select('id').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+    const current = await latestIdentity(req.user.id)
+    if (current && ['VERIFIED', 'MANUAL_REVIEW'].includes(current.status)) return res.status(409).json({ error: current.status === 'VERIFIED' ? 'Your identity is already verified.' : 'Admissions is already reviewing your verification.' })
+    if (current?.status === 'PENDING' && current.provider_session_id) {
+      try { await identityStripe?.identity.verificationSessions.cancel(current.provider_session_id) } catch { /* already finished */ }
+      await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', provider_status: 'canceled', failure_code: 'abandoned', failure_reason: 'Replaced by an in-person verification request.', last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', current.id).eq('status', 'PENDING')
+    }
+    const now = new Date().toISOString()
+    const { data: row, error } = await supabase.from('cdl_identity_verifications').insert({
+      user_id: req.user.id, student_id: student.id, method: 'ALTERNATIVE', provider: 'none', document_type: parsed.data.documentType,
+      status: 'MANUAL_REVIEW', last_action: 'ALTERNATIVE_REQUESTED', decision_note: parsed.data.reason || 'In-person verification requested.',
+      consent_version: 'alternative', consent_at: now, consent_ip: req.ip || null,
+    }).select().single()
+    if (error) throw error
+    await alertIdentityReview(row)
+    res.status(201).json(identityForStudent(row))
+  } catch (error) {
+    console.error('Error requesting alternative verification:', error)
+    res.status(500).json({ error: 'Could not send your request. Please try again.' })
+  }
+})
+
+async function handleIdentitySessionEvent(object) {
+  const { data: row } = await supabase.from('cdl_identity_verifications').select('*').eq('provider_session_id', object.id).maybeSingle()
+  if (!row) {
+    console.warn(`Identity webhook for unknown session ${object.id}`)
+    return
+  }
+  if (object.status === 'redacted' || object.redaction?.status === 'redacted') {
+    await supabase.from('cdl_identity_verifications').update({ redacted_at: new Date().toISOString(), last_action: 'REDACTED', updated_at: new Date().toISOString() }).eq('id', row.id).is('redacted_at', null)
+    return
+  }
+  await applyIdentitySession(row, object)
+}
+
+// Biometric data is redacted at Stripe 30 days after a final decision.
+async function redactIdentitySessions() {
+  if (!identityStripe || !supabase) return
+  const cutoff = new Date(Date.now() - REDACT_AFTER_DAYS * 86400000).toISOString()
+  const { data: rows } = await supabase.from('cdl_identity_verifications').select('*')
+    .in('status', ['VERIFIED', 'FAILED']).not('provider_session_id', 'is', null).is('redacted_at', null).lte('decided_at', cutoff).limit(50)
+  for (const row of rows || []) {
+    if (!dueForRedaction(row)) continue
+    try {
+      await identityStripe.identity.verificationSessions.redact(row.provider_session_id)
+      await supabase.from('cdl_identity_verifications').update({ redacted_at: new Date().toISOString(), last_action: 'REDACTED', updated_at: new Date().toISOString() }).eq('id', row.id)
+    } catch (error) {
+      console.error(`Could not redact identity session ${row.id}:`, error?.message)
+    }
+  }
+}
+
+// --------------------------------------------------------------- admin review
+app.get('/api/admin/identity-verifications', adminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_identity_verifications')
+      .select(`${IDENTITY_COLUMNS}, user_id, provider, provider_session_id, document_issuing_country, consent_version, consent_at, decided_by, redacted_at, student:cdl_students(first_name, last_name, email, phone)`)
+      .order('updated_at', { ascending: false }).limit(500)
+    if (error) throw error
+    res.json({ verifications: data || [] })
+  } catch (error) {
+    console.error('Error listing identity verifications:', error)
+    res.status(500).json({ error: 'Could not load identity verifications.' })
+  }
+})
+
+app.get('/api/admin/identity-verifications/:id/events', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  try {
+    const { data, error } = await supabase.from('cdl_identity_events').select('*').eq('verification_id', req.params.id).order('created_at')
+    if (error) throw error
+    const actors = [...new Set((data || []).map(row => row.actor_id).filter(Boolean))]
+    const { data: profiles } = actors.length ? await supabase.from('profiles').select('id, full_name').in('id', actors) : { data: [] }
+    const names = Object.fromEntries((profiles || []).map(row => [row.id, row.full_name]))
+    res.json({ events: (data || []).map(row => ({ ...row, actor_name: row.actor_id ? names[row.actor_id] || 'Staff' : 'System' })) })
+  } catch (error) {
+    console.error('Error loading identity events:', error)
+    res.status(500).json({ error: 'Could not load the audit trail.' })
+  }
+})
+
+const identityDecisionSchema = z.object({
+  action: z.enum(['APPROVE', 'REJECT', 'REQUEST_RESUBMISSION']),
+  reason: z.string().trim().min(3).max(500),
+}).strict()
+
+// Manual review. APPROVE clears identity (including an exception when the
+// provider check could not be completed); REJECT and REQUEST_RESUBMISSION
+// leave it uncleared and let the student start a new attempt.
+app.post('/api/admin/identity-verifications/:id/decision', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  const parsed = identityDecisionSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Choose a decision and give a reason (at least 3 characters).' })
+  try {
+    const { data: row } = await supabase.from('cdl_identity_verifications').select('*').eq('id', req.params.id).maybeSingle()
+    if (!row) return res.status(404).json({ error: 'Verification not found.' })
+    const { data: newer } = await supabase.from('cdl_identity_verifications').select('id').eq('user_id', row.user_id).gt('created_at', row.created_at).limit(1)
+    if (newer?.length) return res.status(409).json({ error: 'The student has a newer verification. Review that one instead.' })
+    const { action, reason } = parsed.data
+    if (action === 'APPROVE' && row.status === 'VERIFIED') return res.status(409).json({ error: 'This verification is already verified.' })
+    if (row.status === 'PENDING' && row.provider_session_id) {
+      try { await identityStripe?.identity.verificationSessions.cancel(row.provider_session_id) } catch { /* finished at Stripe */ }
+    }
+    const now = new Date().toISOString()
+    const { data, error } = await supabase.from('cdl_identity_verifications').update({
+      status: action === 'APPROVE' ? 'VERIFIED' : 'FAILED', last_action: action === 'APPROVE' ? 'APPROVED' : action === 'REJECT' ? 'REJECTED' : 'RESUBMISSION_REQUESTED',
+      decided_at: now, decided_by: req.user.id, decision_note: reason,
+      failure_code: action === 'APPROVE' ? '' : action === 'REJECT' ? 'rejected_by_staff' : 'resubmission_requested',
+      failure_reason: action === 'APPROVE' ? '' : action === 'REJECT' ? `Admissions could not verify your identity: ${reason}` : `Admissions asked you to verify again: ${reason}`,
+      updated_at: now,
+    }).eq('id', row.id).select(`${IDENTITY_COLUMNS}, decided_by`).single()
+    if (error) throw error
+    console.info(`Identity ${action} by ${req.user.email} for verification ${row.id}`)
+    res.json({ verification: data })
+  } catch (error) {
+    console.error('Error recording identity decision:', error)
+    res.status(500).json({ error: 'Could not record the decision.' })
+  }
+})
 
 const PAYMENT_METHOD_LABELS = { stripe: 'Card (Stripe)', cash: 'Cash', check: 'Check', money_order: 'Money order', other: 'Other' }
 
@@ -1787,6 +2094,11 @@ async function dispatchWebhookEvent(event) {
     'payment_intent.succeeded': handlePaymentIntentSucceeded,
     'payment_intent.payment_failed': handlePaymentIntentFailed,
     'charge.refunded': handleChargeRefunded,
+    'identity.verification_session.verified': handleIdentitySessionEvent,
+    'identity.verification_session.requires_input': handleIdentitySessionEvent,
+    'identity.verification_session.processing': handleIdentitySessionEvent,
+    'identity.verification_session.canceled': handleIdentitySessionEvent,
+    'identity.verification_session.redacted': handleIdentitySessionEvent,
   }
 
   const handler = map[event.type]
@@ -2457,6 +2769,9 @@ export { app }
 
 const isDirectRun =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+// Hourly redaction of biometrics at Stripe (not during tests).
+if (!process.env.VITEST) setInterval(() => { void redactIdentitySessions() }, 3600000).unref()
 
 if (isDirectRun) {
   const PORT = process.env.PORT || 3001
