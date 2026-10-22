@@ -1,23 +1,22 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Box, Button, Container, IconButton, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { useContent } from '../contexts/ContentContext'
 import { FinancingBar, FinancingBenefits, RED, ROYAL } from './financing/HomeFinancing'
 
-const trainingVideos = [
-  {
-    src: 'https://imantruckingschool.com/wp-content/uploads/2025/02/TPAUL-IMAN.mp4',
-    label: 'Student driver training',
-  },
-  {
-    src: 'https://imantruckingschool.com/wp-content/uploads/2025/02/WEB-IMAN.mp4',
-    label: 'CDL training experience',
-  },
+// Background slideshow: the school's own truck photos.
+const heroSlides = [
+  { src: '/images/home-hero.jpg', position: 'center 45%', label: 'IMAN training trucks' },
+  { src: '/images/gallery/gallery-26.jpg', position: 'center 55%', label: 'IMAN Trucking School truck' },
+  { src: '/images/home-hero-2.jpg', position: 'center 50%', label: 'Training yard' },
+  { src: '/images/gallery/gallery-10.jpg', position: 'center 55%', label: 'Students with the training fleet' },
+  { src: '/images/gallery/gallery-25.jpg', position: 'center 55%', label: 'Class A truck and trailer' },
+  { src: '/images/gallery/gallery-30.jpg', position: 'center 50%', label: 'CDL Class A graduates' },
 ] as const
+const SLIDE_MS = 6000
 
 // Media at one edge of the hero, fading toward the centre, on a navy wave
 // with a red stripe. Desktop only; phones get a single photo strip.
@@ -50,16 +49,17 @@ export function HomeHero() {
     button_text: 'Check your CDL readiness',
     button_url: '/cdl-assessment/',
   })
-  const [activeVideo, setActiveVideo] = useState(0)
+  const [activeSlide, setActiveSlide] = useState(0)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 
+  // Restarts after a manual pick so the chosen photo gets a full turn.
   useEffect(() => {
     if (reduceMotion) return
-    const rotation = window.setInterval(() => {
-      setActiveVideo((current) => (current + 1) % trainingVideos.length)
-    }, 12_000)
-    return () => window.clearInterval(rotation)
-  }, [reduceMotion])
+    const rotation = window.setTimeout(() => {
+      setActiveSlide((current) => (current + 1) % heroSlides.length)
+    }, SLIDE_MS)
+    return () => window.clearTimeout(rotation)
+  }, [reduceMotion, activeSlide])
 
   return <>
     <Box
@@ -70,27 +70,19 @@ export function HomeHero() {
       }}
     >
       <Box sx={{ position: 'relative', isolation: 'isolate', bgcolor: '#041226' }}>
-      {/* Truck training videos behind the headline, rotating; a still photo when motion is reduced. */}
-      <Box aria-hidden sx={{ position: 'absolute', inset: 0, zIndex: -1, overflow: 'hidden', backgroundImage: 'url(/images/home-hero.jpg)', backgroundSize: 'cover', backgroundPosition: { xs: '62% center', md: 'center 45%' } }}>
-        {!reduceMotion && (
+      {/* Truck photo slideshow behind the headline, crossfading with a slow zoom. */}
+      <Box aria-hidden sx={{ position: 'absolute', inset: 0, zIndex: -1, overflow: 'hidden' }}>
+        {heroSlides.map((slide, index) => (
           <Box
-            component="video"
-            key={trainingVideos[activeVideo].src}
-            src={trainingVideos[activeVideo].src}
-            poster="/images/home-hero.jpg"
-            autoPlay
-            muted
-            playsInline
-            preload="metadata"
-            aria-hidden="true"
-            onEnded={() => setActiveVideo((current) => (current + 1) % trainingVideos.length)}
+            key={slide.src}
             sx={{
-              position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center',
-              animation: 'imanVideoReveal .9s ease both',
-              '@keyframes imanVideoReveal': { from: { opacity: 0, transform: 'scale(1.025)' }, to: { opacity: 1, transform: 'scale(1)' } },
+              position: 'absolute', inset: 0, backgroundImage: `url(${slide.src})`, backgroundSize: 'cover', backgroundPosition: slide.position,
+              opacity: index === activeSlide ? 1 : 0, transition: 'opacity 1.2s ease',
+              animation: index === activeSlide && !reduceMotion ? `imanSlideZoom ${SLIDE_MS + 1200}ms ease-out both` : 'none',
+              '@keyframes imanSlideZoom': { from: { transform: 'scale(1)' }, to: { transform: 'scale(1.07)' } },
             }}
           />
-        )}
+        ))}
         {/* Navy tint, a little deeper behind the text so it stays readable. */}
         <Box sx={{ position: 'absolute', inset: 0, background: 'radial-gradient(60% 70% at 50% 38%, rgba(4,18,38,.72) 0%, rgba(4,18,38,.5) 70%, rgba(4,18,38,.38) 100%), linear-gradient(180deg, rgba(8,8,95,.25) 0%, rgba(4,18,38,.15) 60%, rgba(4,18,38,.55) 100%)' }} />
       </Box>
@@ -134,41 +126,33 @@ export function HomeHero() {
 
       <Container sx={{ position: 'relative', mt: { md: -6 }, pb: { xs: 4, md: 5 } }}>
         <FinancingBar />
-        {!reduceMotion && (
-          <Stack
-            className="notranslate"
-            translate="no"
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            justifyContent="flex-end"
-            sx={{ display: { xs: 'none', md: 'flex' }, mt: 1.5 }}
-            aria-label="Select homepage training video"
-          >
-            <Typography variant="caption" sx={{ mr: .5, color: 'text.secondary', fontWeight: 800 }}>
-              Training view {activeVideo + 1} of {trainingVideos.length}
-            </Typography>
-            {trainingVideos.map((video, index) => (
-              <Tooltip key={video.src} title={video.label}>
-                <IconButton
-                  aria-label={`Play ${video.label}`}
-                  aria-pressed={activeVideo === index}
-                  onClick={() => setActiveVideo(index)}
-                  size="small"
-                  sx={{
-                    width: activeVideo === index ? 40 : 32, height: 32,
-                    color: activeVideo === index ? 'white' : ROYAL,
-                    bgcolor: activeVideo === index ? 'secondary.main' : 'rgba(8,8,95,.08)',
-                    transition: 'all .25s ease',
-                    '&:hover': { bgcolor: activeVideo === index ? 'secondary.dark' : 'rgba(8,8,95,.14)' },
-                  }}
-                >
-                  <PlayArrowRoundedIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-            ))}
-          </Stack>
-        )}
+        <Stack
+          className="notranslate"
+          translate="no"
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          justifyContent="flex-end"
+          sx={{ mt: 1.5 }}
+          aria-label="Choose a background photo"
+        >
+          <Typography variant="caption" sx={{ mr: .5, color: 'text.secondary', fontWeight: 800 }}>
+            Photo {activeSlide + 1} of {heroSlides.length}
+          </Typography>
+          {heroSlides.map((slide, index) => (
+            <Tooltip key={slide.src} title={slide.label}>
+              <IconButton
+                aria-label={`Show ${slide.label}`}
+                aria-pressed={activeSlide === index}
+                onClick={() => setActiveSlide(index)}
+                size="small"
+                sx={{ p: 0.75 }}
+              >
+                <Box sx={{ width: activeSlide === index ? 26 : 10, height: 10, borderRadius: 5, bgcolor: activeSlide === index ? 'secondary.main' : 'rgba(8,8,95,.22)', transition: 'all .3s ease' }} />
+              </IconButton>
+            </Tooltip>
+          ))}
+        </Stack>
       </Container>
     </Box>
     <Box sx={{ bgcolor: 'white', borderBottom: '1px solid', borderColor: 'divider' }}>
