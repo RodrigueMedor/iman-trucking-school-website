@@ -12,6 +12,89 @@ import { useCallback } from 'react'
 type Variant = 'section' | 'card' | 'inline' | 'hero'
 
 /**
+ * The financing next step for the current visitor: Liberty's application for
+ * students, or account creation/sign-in (returning to the training
+ * application) for everyone else.
+ */
+export function FinancingAction({ tint = '#f3f6fa', dense = false, row = false }: { tint?: string; dense?: boolean; row?: boolean }) {
+  const { loading, profileReady, session, profile } = useAuth()
+  const authPending = loading || Boolean(session && !profileReady)
+  const studentCanApply = Boolean(session && profile?.active && profile.role === 'student')
+  const recordReferral = useCallback(() => {
+    void recordFinancingReferral().catch(error => console.error('Unable to record financing referral:', error))
+  }, [])
+
+  if (authPending) {
+    return (
+      <Stack spacing={1} aria-label="Checking student account">
+        <Skeleton variant="rounded" width="100%" height={48} />
+        <Skeleton width="75%" />
+      </Stack>
+    )
+  }
+  if (studentCanApply) {
+    return (
+      <>
+        <LibertyFinancingButton onApply={recordReferral} />
+        <Typography variant="body2" color="text.secondary">
+          Opens {FINANCING_PARTNER}'s secure application in a new window. Keep this page open to continue with Iman Trucking School.{' '}
+          <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light" onClick={recordReferral}>
+            Button not working? Open the application directly.
+          </Link>
+        </Typography>
+      </>
+    )
+  }
+  if (row) {
+    return (
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={{ xs: 1.5, md: 3 }} alignItems={{ md: 'center' }} justifyContent="space-between">
+        <Typography variant="body2" color="text.secondary" lineHeight={1.6}>
+          <Box component="strong" sx={{ color: 'primary.main' }}>Ready to apply?</Box> Create an account or sign in, then begin your CDL Training application before continuing securely to {FINANCING_PARTNER}.
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+          <Button component={RouterLink} to="/portal/register?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing" variant="contained" color="secondary" size="small" startIcon={<PersonAddRoundedIcon />}>
+            Create account
+          </Button>
+          <Button component={RouterLink} to="/portal/sign-in?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing" variant="outlined" color="primary" size="small" startIcon={<LoginRoundedIcon />}>
+            Sign in
+          </Button>
+        </Stack>
+      </Stack>
+    )
+  }
+  return (
+    <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: tint, border: 1, borderColor: 'divider' }}>
+      <Typography fontWeight={900} color="primary.main">Start with your IMAN student account</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5, lineHeight: 1.6 }}>
+        {dense
+          ? `Create an account or sign in, then begin your CDL Training application before continuing to ${FINANCING_PARTNER}.`
+          : `Create an account or sign in, confirm your current CDL eligibility category, then begin your CDL Training application before continuing securely to ${FINANCING_PARTNER}.`}
+      </Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <Button
+          component={RouterLink}
+          to="/portal/register?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
+          variant="contained"
+          color="secondary"
+          startIcon={<PersonAddRoundedIcon />}
+        >
+          Create account
+        </Button>
+        <Button
+          component={RouterLink}
+          to="/portal/sign-in?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
+          variant="outlined"
+          color="primary"
+          startIcon={<LoginRoundedIcon />}
+        >
+          Sign in
+        </Button>
+      </Stack>
+    </Box>
+  )
+}
+
+/**
  * "Need Help Paying for CDL Training?" — IMAN's framing around the partner's
  * application button, with the third-party disclosure.
  *  - section: full-width band on public pages
@@ -29,12 +112,6 @@ export function FinancingCallout({
 }) {
   const compact = variant !== 'section'
   const hero = variant === 'hero'
-  const { loading, profileReady, session, profile } = useAuth()
-  const authPending = loading || Boolean(session && !profileReady)
-  const studentCanApply = Boolean(session && profile?.active && profile.role === 'student')
-  const recordReferral = useCallback(() => {
-    void recordFinancingReferral().catch(error => console.error('Unable to record financing referral:', error))
-  }, [])
 
   const body = (
     <Stack spacing={hero ? 1.75 : compact ? 1.5 : 2} sx={{ minWidth: 0, position: 'relative', zIndex: 1 }}>
@@ -69,49 +146,7 @@ export function FinancingCallout({
         Financing options may be available to qualified students through our financing partner, <strong>{FINANCING_PARTNER}</strong>.
         {variant === 'inline' ? ' Applying is optional and does not affect your IMAN application.' : ''}
       </Typography>
-      {authPending ? (
-        <Stack spacing={1} aria-label="Checking student account">
-          <Skeleton variant="rounded" width="100%" height={48} />
-          <Skeleton width="75%" />
-        </Stack>
-      ) : studentCanApply ? (
-        <>
-          <LibertyFinancingButton onApply={recordReferral} />
-          <Typography variant="body2" color="text.secondary">
-            Opens {FINANCING_PARTNER}'s secure application in a new window. Keep this page open to continue with Iman Trucking School.{' '}
-            <Link href={LIBERTY.l} target="_blank" rel="noopener noreferrer" fontWeight={700} color="primary.light" onClick={recordReferral}>
-              Button not working? Open the application directly.
-            </Link>
-          </Typography>
-        </>
-      ) : (
-        <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: hero ? 'rgba(7,26,51,.055)' : '#f3f6fa', border: 1, borderColor: 'divider' }}>
-          <Typography fontWeight={900} color="primary.main">Start with your IMAN student account</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5, lineHeight: 1.6 }}>
-            Create an account or sign in, confirm your current CDL eligibility category, then begin your CDL Training application before continuing securely to {FINANCING_PARTNER}.
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button
-              component={RouterLink}
-              to="/portal/register?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
-              variant="contained"
-              color="secondary"
-              startIcon={<PersonAddRoundedIcon />}
-            >
-              Create account
-            </Button>
-            <Button
-              component={RouterLink}
-              to="/portal/sign-in?next=%2Fportal%2Fapply%2Ftraining%3Ffrom%3Dfinancing"
-              variant="outlined"
-              color="primary"
-              startIcon={<LoginRoundedIcon />}
-            >
-              Sign in
-            </Button>
-          </Stack>
-        </Box>
-      )}
+      <FinancingAction tint={hero ? 'rgba(7,26,51,.055)' : '#f3f6fa'} />
       <Typography variant="caption" color="text.secondary" component="p" sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5, lineHeight: 1.6 }}>
         {FINANCING_DISCLOSURE}
         {showLearnMore && (
