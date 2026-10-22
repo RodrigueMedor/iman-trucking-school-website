@@ -263,16 +263,8 @@ export const pageContent: Record<string, PageContent> = {
   },
 }
 
-export const galleryImages = [
-  '4Z8A0112-scaled.jpg',
-  '4Z8A0189-scaled.jpg',
-  '4Z8A0214-scaled.jpg',
-  '4Z8A0295-scaled.jpg',
-  '4Z8A0357-scaled.jpg',
-  '4Z8A0446-scaled.jpg',
-  '4Z8A0518-scaled.jpg',
-  '4Z8A0587-scaled.jpg',
-].map((name) => `https://imantruckingschool.com/wp-content/uploads/2025/02/${name}`)
+// Copied from the school's WordPress gallery and resized for the web.
+export const galleryImages = Array.from({ length: 32 }, (_, index) => `/images/gallery/gallery-${String(index + 1).padStart(2, '0')}.jpg`)
 
 export const testimonials = [
   {

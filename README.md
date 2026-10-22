@@ -198,3 +198,63 @@ routes from the same process via `server.js`, so payments work out of the box
 once the environment variables above are set. Static-only hosts (e.g. Netlify
 or plain `public_html`) cannot run the Node API endpoints; deploy the Node
 server or an API host for payments.
+
+### Tuition billing and Liberty financing
+
+Apply these migrations, in order, before deploying this version:
+`202610210001_tuition_billing.sql`, then `202610220001_tuition_billing_hardening.sql`.
+Both are additive; existing students, applications and payments are preserved.
+
+**Tuition accounts (admins).** Admissions creates a tuition account for an
+approved training application under **Admin → Tuition accounts**. Amounts are
+stored in cents and Stripe Checkout always prices them on the server. Clicking
+an account opens its ledger: installment schedule, payment history with
+receipts, signed agreements, waivers and the email/SMS confirmations sent.
+From there an admin can:
+
+- record an offline payment (cash, check, money order) — the student receives
+  the usual confirmation and a receipt;
+- void an offline payment entered by mistake (card payments are refunded in
+  the Stripe Dashboard instead; the refund is applied automatically);
+- waive a due installment, with a reason kept in the audit record.
+
+**Students.** **Portal → Tuition & Payments** offers two choices side by side:
+*Pay with Stripe* (full remaining balance, the deposit, or a due installment)
+or *Apply for financing* through Liberty Career Finance. Students download
+receipts and their signed agreements as PDFs, and the dashboard shows the
+remaining balance.
+
+**Ledger rules.** The balance is computed by the `cdl_tuition_account_balances`
+view, never stored: tuition − funded financing − (succeeded payments − refunds)
+− waivers. Partial refunds reduce the amount paid. Database triggers keep the
+account status current (`OPEN`, `PAYMENT_PENDING`, `FINANCING_PENDING`,
+`PAID`). An account that ends up overpaid shows a credit and admissions is
+emailed.
+
+**Duplicate-payment protection.** One open checkout per account (unique
+index). Starting a different option expires the open Stripe Session first; an
+abandoned one expires after 35 minutes; a Session that was already paid is
+recorded instead of charging again. Webhook events are processed once
+(`stripe_webhook_events`), and a payment's amount and currency are verified
+before it is marked paid.
+
+**Financing (super admin only).** Liberty Career Finance remains a
+privacy-safe external referral; credit application data stays with Liberty.
+Only the super administrator can update **Admin → Financing referrals**. Marking
+a referral `FUNDED` with the funded amount applies it to the linked tuition
+balance automatically; moving it out of `FUNDED` removes it again.
+
+**Confirmations.** Payment emails (Resend) and SMS (Twilio) are sent only when
+`RESEND_API_KEY` and the three `TWILIO_*` variables are set on the server.
+Check `GET /api/health`: `email` and `sms` must both be `true` in production.
+
+### Tests
+
+```bash
+npm test                          # unit and API authorization tests
+bash scripts/test-db.sh --docker  # every migration + RLS and ledger tests (Docker)
+bash scripts/test-integration.sh  # Stripe webhook and admin API against a real schema (Docker)
+```
+
+The Docker suites use throwaway containers and never contact Stripe or a
+hosted Supabase project. CI runs all three before deploying.

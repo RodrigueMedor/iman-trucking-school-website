@@ -205,7 +205,8 @@ export function PortalAuth({ mode }: { mode: PortalAuthMode }) {
       const message = await resendVerification(email.data)
       if (message) return setFormError(message)
       window.sessionStorage.setItem(pendingEmailKey, email.data)
-      setNotice('A new verification code was sent. It expires in about 10 minutes.')
+      // Supabase reports success for already-verified emails without sending a code.
+      setNotice('If this email still needs verifying, a new code is on its way. It expires in about 10 minutes. Already verified? Go back to sign in.')
       setResendIn(resendCooldownSeconds)
     })
   }

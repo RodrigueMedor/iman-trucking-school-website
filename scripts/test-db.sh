@@ -4,8 +4,40 @@
 #
 #   scripts/test-db.sh            # Supabase local stack (Docker + `npx supabase start`)
 #   scripts/test-db.sh --pg       # throwaway local Postgres cluster + auth/storage stubs
+#   scripts/test-db.sh --docker   # throwaway Postgres 16 container + auth/storage stubs
+#                                 # (security_invoker views need Postgres 15+)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+run_stubbed_suite() {
+  export PGOPTIONS="-c client_min_messages=warning"
+  "${PSQL[@]}" -f - <<'SQL'
+\set ON_ERROR_STOP on
+create role anon nologin;
+create role authenticated nologin;
+create role service_role nologin bypassrls;
+SQL
+  sed '/^create role /d' supabase/tests/supabase_stub.sql | "${PSQL[@]}" -f -
+  for f in supabase/migrations/*.sql; do
+    "${PSQL[@]}" -1 -f - < "$f" >/dev/null || { echo "Migration failed: $f" >&2; exit 1; }
+  done
+  for f in supabase/tests/portal_rls.sql supabase/tests/tuition_rls.sql; do
+    [[ -f "$f" ]] && "${PSQL[@]}" -f - < "$f"
+  done
+}
+
+if [[ "${1:-}" == "--docker" ]]; then
+  IMAGE="${TEST_PG_IMAGE:-postgres:16-alpine}"
+  NAME="iman-test-db-$$"
+  cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
+  trap cleanup EXIT
+  docker run -d --name "$NAME" -e POSTGRES_PASSWORD=postgres "$IMAGE" >/dev/null
+  until docker exec "$NAME" pg_isready -U postgres -q 2>/dev/null; do sleep 1; done
+  sleep 1
+  PSQL=(docker exec -i -e PGOPTIONS="-c client_min_messages=warning" "$NAME" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q)
+  run_stubbed_suite
+  exit 0
+fi
 
 if [[ "${1:-}" != "--pg" ]]; then
   LOCAL_DB_URL="${LOCAL_DB_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
@@ -27,16 +59,5 @@ trap cleanup EXIT
 "$PG_BIN/initdb" -D "$DATA_DIR" -A trust -U postgres >/dev/null
 "$PG_BIN/pg_ctl" -D "$DATA_DIR" -o "-p $PORT -k $DATA_DIR -c listen_addresses=''" -l "$DATA_DIR/log" -w start >/dev/null
 
-export PGOPTIONS="-c client_min_messages=warning"
 PSQL=("$PG_BIN/psql" -h "$DATA_DIR" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -q)
-"${PSQL[@]}" -f - <<'SQL'
-\set ON_ERROR_STOP on
-create role anon nologin;
-create role authenticated nologin;
-create role service_role nologin bypassrls;
-SQL
-sed '/^create role /d' supabase/tests/supabase_stub.sql | "${PSQL[@]}" -f -
-for f in supabase/migrations/*.sql; do
-  "${PSQL[@]}" -1 -f "$f" >/dev/null || { echo "Migration failed: $f" >&2; exit 1; }
-done
-"${PSQL[@]}" -f supabase/tests/portal_rls.sql
+run_stubbed_suite

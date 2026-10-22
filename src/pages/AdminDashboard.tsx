@@ -41,6 +41,7 @@ export function AdminDashboard() {
   const cdlTools = [
     [SchoolIcon, 'Score Management', 'Enter and publish student scores', '/admin/cdl-scores/'],
     [AssignmentIcon, 'Applications', 'Review CDL Training and Assessment applications', '/admin/cdl-applications/'],
+    [AccountBalanceRoundedIcon, 'Tuition Accounts', 'Assign tuition, deposits, installments and review balances', '/admin/tuition-accounts/'],
     [AccountBalanceRoundedIcon, 'Financing Referrals', 'View students sent to Liberty and record follow-up', '/admin/financing-referrals/'],
     [PersonAddIcon, 'Enrollments', 'Manage student enrollments', '/admin/cdl-enrollments/'],
     [PeopleIcon, 'Instructor View', 'View all student submissions', '/admin/cdl-instructor/'],

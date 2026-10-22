@@ -8,8 +8,8 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded'
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  listMyApplications, getMyStudent, startRegistrationCheckout, toMessage,
-  type Application, type StudentProfile,
+  getMyBilling, listMyApplications, getMyStudent, startRegistrationCheckout, toMessage,
+  type Application, type BillingSummary, type StudentProfile,
 } from '../api'
 import { getPaymentStatus } from '../../lib/stripe'
 import { TYPE_LABEL, type ApplicationType } from '../model'
@@ -48,6 +48,45 @@ function ActionCard({ type, draft, open }: { type: ApplicationType; draft?: Appl
             {type === 'TRAINING' ? 'Apply for training' : 'Request an assessment'}
           </Button>
         )}
+      </Stack>
+    </Paper>
+  )
+}
+
+const money = (cents: number, currency = 'usd') => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format((cents || 0) / 100)
+
+/** Tuition balance at a glance; loads on its own so a billing error never blocks the dashboard. */
+function TuitionSummary() {
+  const [billing, setBilling] = useState<BillingSummary | null>(null)
+  useEffect(() => {
+    let alive = true
+    getMyBilling().then(result => { if (alive) setBilling(result) }).catch(() => { if (alive) setBilling({ accounts: [], installments: [], payments: [], agreements: [], adjustments: [], financing: null }) })
+    return () => { alive = false }
+  }, [])
+
+  if (!billing) return <ListSkeleton rows={1} />
+  const accounts = billing.accounts.filter(account => account.status !== 'CLOSED')
+  if (!accounts.length) return <>
+    <FinancingCallout variant="card" title="Explore CDL Training Financing" />
+    <Button component={Link} to="/portal/billing/" variant="contained" sx={{ mt: 2 }} startIcon={<ReceiptLongRounded />}>{billing.payable?.length ? 'Pay tuition by card' : 'View tuition, payments & receipts'}</Button>
+  </>
+  const currency = accounts[0].currency
+  const remaining = accounts.reduce((sum, account) => sum + account.remaining_cents, 0)
+  const tuition = accounts.reduce((sum, account) => sum + account.tuition_cents, 0)
+  const covered = tuition - remaining
+  return (
+    <Paper elevation={0} sx={{ ...cardSx, p: { xs: 2.5, md: 3 } }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ md: 'center' }}>
+        <Box>
+          <Typography component="h2" variant="h6" fontWeight={900}>Tuition balance</Typography>
+          <Typography variant="h4" fontWeight={950} color={NAVY} sx={{ my: 0.5 }}>{money(remaining, currency)}</Typography>
+          <Typography color="text.secondary">
+            {remaining === 0 ? 'Your tuition is fully covered. Thank you!' : `${money(covered, currency)} of ${money(tuition, currency)} covered by payments and financing.`}
+          </Typography>
+        </Box>
+        <Button component={Link} to="/portal/billing/" variant="contained" color={remaining ? 'secondary' : 'primary'} startIcon={<ReceiptLongRounded />}>
+          {remaining ? 'Pay or apply for financing' : 'View payments & receipts'}
+        </Button>
       </Stack>
     </Paper>
   )
@@ -138,7 +177,7 @@ export function Dashboard() {
       </Grid>
 
       <Box sx={{ mb: { xs: 2, md: 3 } }}>
-        <FinancingCallout variant="card" title="Explore CDL Training Financing" />
+        <TuitionSummary />
       </Box>
 
       <Grid container spacing={{ xs: 2, md: 3 }}>

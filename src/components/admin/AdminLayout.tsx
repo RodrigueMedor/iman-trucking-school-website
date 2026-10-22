@@ -5,18 +5,25 @@ import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded'
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded'
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded'
+import SellRoundedIcon from '@mui/icons-material/SellRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { isSuperAdminEmail } from '../../lib/adminAuth'
 
 const width = 276
 const links = [
   ['Dashboard', '/admin/', <DashboardRoundedIcon />],
   ['All page content', '/admin/content/', <ArticleRoundedIcon />],
   ['Applications', '/admin/cdl-applications/', <AssignmentRoundedIcon />],
+  ['Tuition accounts', '/admin/tuition-accounts/', <AccountBalanceRoundedIcon />],
   ['Financing referrals', '/admin/financing-referrals/', <AccountBalanceRoundedIcon />],
+] as const
+// Pricing is changed only by the super administrator (see SuperAdminRoute).
+const superAdminLinks = [
+  ['Course pricing', '/admin/course-pricing/', <SellRoundedIcon />],
 ] as const
 // Instructors can only open the instructor page (see ProtectedRoute).
 const instructorLinks = [
@@ -25,9 +32,10 @@ const instructorLinks = [
 
 export function AdminLayout() {
   const { pathname } = useLocation()
-  const { profile, signOut } = useAuth()
+  const { profile, session, signOut } = useAuth()
   const [open, setOpen] = useState(false)
-  const navLinks = profile?.role === 'instructor' ? instructorLinks : links
+  const superAdmin = profile?.role === 'super_admin' && isSuperAdminEmail(session?.user.email)
+  const navLinks = profile?.role === 'instructor' ? instructorLinks : superAdmin ? [...links, ...superAdminLinks] : links
   const drawer = <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#071a33', color: 'white' }}>
     <Box sx={{ p: 3 }}><Typography fontWeight={950} fontSize={20}>IMAN TRUCKING SCHOOL</Typography><Typography color="rgba(255,255,255,.55)" fontSize={11} letterSpacing=".13em" fontWeight={900}>WEBSITE STUDIO</Typography></Box>
     <Divider sx={{ borderColor: 'rgba(255,255,255,.1)' }} />

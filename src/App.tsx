@@ -20,6 +20,8 @@ import { CDLApplications } from './pages/admin/CDLApplications'
 import { CDLEnrollments } from './pages/admin/CDLEnrollments'
 import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
 import { FinancingReferrals } from './pages/admin/FinancingReferrals'
+import { CoursePricing } from './pages/admin/CoursePricing'
+import { TuitionAccounts } from './pages/admin/TuitionAccounts'
 import { PortalAuth } from './portal/PortalAuth'
 import { RequireStudent } from './portal/RequireStudent'
 import { PortalLayout } from './portal/PortalLayout'
@@ -32,6 +34,7 @@ import { DocumentsPage } from './portal/pages/DocumentsPage'
 import { SchedulePage } from './portal/pages/SchedulePage'
 import { ProfilePage } from './portal/pages/ProfilePage'
 import { AssessmentTest } from './portal/pages/AssessmentTest'
+import { BillingPage } from './portal/pages/BillingPage'
 
 function ScrollManager() {
   const { pathname } = useLocation()
@@ -60,7 +63,11 @@ export function App() {
             <Route path="content/" element={<AdminContent />} />
             <Route path="cdl-scores/" element={<CDLScoreManagement />} />
             <Route path="cdl-applications/" element={<CDLApplications />} />
-            <Route path="financing-referrals/" element={<FinancingReferrals />} />
+            <Route element={<SuperAdminRoute />}>
+              <Route path="financing-referrals/" element={<FinancingReferrals />} />
+              <Route path="course-pricing/" element={<CoursePricing />} />
+            </Route>
+            <Route path="tuition-accounts/" element={<TuitionAccounts />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
@@ -82,6 +89,7 @@ export function App() {
             <Route path="applications/:id" element={<ApplicationDetail />} />
             <Route path="applications/:id/confirmation" element={<Confirmation />} />
             <Route path="documents/" element={<DocumentsPage />} />
+            <Route path="billing/" element={<BillingPage />} />
             <Route path="schedule/" element={<SchedulePage />} />
             <Route path="profile/" element={<ProfilePage />} />
             <Route path="assessment/test/:applicationId" element={<AssessmentTest />} />

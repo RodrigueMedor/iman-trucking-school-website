@@ -6,9 +6,11 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { z } from 'zod'
+import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
 import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptText } from './shared/admissionsChat.mjs'
+import { installmentSchedule, pendingCheckoutAction, tuitionPaymentAmount } from './shared/tuition.mjs'
 
 dotenv.config()
 
@@ -82,6 +84,8 @@ const missingServiceError = 'Payments are not configured on the server. Set STRI
 const missingDatabaseError = 'The student portal is not configured on the server. Set SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_URL.'
 
 const PAYMENT_POLICY_VERSION = 'v2-case-by-case-refunds'
+const TUITION_AGREEMENT_VERSION = 'tuition-v1-2026-10'
+const TUITION_AGREEMENT_TEXT = 'I authorize Iman Trucking School to apply this payment to my tuition account. I understand that deposits and installment payments reduce, but may not fully satisfy, my tuition balance. Refund requests are reviewed under the school payment and refund policy. Financing is provided separately by Liberty Career Finance and is subject to the lender’s terms.'
 
 function normalizePersonName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -269,6 +273,10 @@ async function handleStripeWebhook(req, res) {
     res.status(500).json({ error: 'Stripe is not configured on the server.' })
     return
   }
+  if (!supabase) {
+    res.status(503).json({ error: missingDatabaseError })
+    return
+  }
 
   let event
   try {
@@ -280,10 +288,30 @@ async function handleStripeWebhook(req, res) {
   }
 
   try {
+    const { data: prior } = await supabase
+      .from('stripe_webhook_events')
+      .select('status, attempts')
+      .eq('event_id', event.id)
+      .maybeSingle()
+    if (prior?.status === 'processed') return res.json({ received: true, duplicate: true })
+    if (prior) {
+      await supabase.from('stripe_webhook_events').update({
+        status: 'processing', attempts: Number(prior.attempts || 0) + 1, error: '', updated_at: new Date().toISOString(),
+      }).eq('event_id', event.id)
+    } else {
+      const { error: eventError } = await supabase.from('stripe_webhook_events').insert({ event_id: event.id, event_type: event.type })
+      if (eventError && eventError.code !== '23505') throw eventError
+    }
     await dispatchWebhookEvent(event)
+    await supabase.from('stripe_webhook_events').update({
+      status: 'processed', processed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq('event_id', event.id)
     res.json({ received: true })
   } catch (error) {
     console.error('Error processing webhook:', error)
+    if (supabase && event?.id) await supabase.from('stripe_webhook_events').update({
+      status: 'failed', error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString(),
+    }).eq('event_id', event.id)
     res.status(500).json({ error: 'Webhook processing failed' })
   }
 }
@@ -367,6 +395,496 @@ app.get('/api/payment-status/:sessionId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching payment status:', error)
     res.status(500).json({ error: 'Failed to fetch payment status' })
+  }
+})
+
+// Student tuition ledger. Accounts are created by admissions; this endpoint
+// is read-only and returns only rows owned by the signed-in student.
+app.get('/api/me/billing', requireUser, requireStudent, async (req, res) => {
+  try {
+    const { data: accounts, error } = await supabase
+      .from('cdl_tuition_account_balances')
+      .select('*, course:cdl_courses(name, code), application:cdl_class_applications(reference_no)')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    const ids = (accounts || []).map(row => row.id)
+    const [{ data: installments }, { data: payments }, { data: agreements }, { data: adjustments }] = ids.length ? await Promise.all([
+      supabase.from('cdl_tuition_installments').select('*').in('tuition_account_id', ids).order('installment_no'),
+      // Abandoned checkout attempts are noise for students; keep real outcomes.
+      supabase.from('cdl_payments').select('id, tuition_account_id, installment_id, payment_kind, payment_method, amount_cents, refunded_cents, currency, status, receipt_number, succeeded_at, refunded_at, created_at').in('tuition_account_id', ids).in('status', ['pending', 'processing', 'succeeded', 'failed', 'refunded']).order('created_at', { ascending: false }),
+      supabase.from('cdl_payment_agreements').select('id, tuition_account_id, payment_id, version, signer_name, accepted_at, created_at').in('tuition_account_id', ids).order('created_at', { ascending: false }),
+      supabase.from('cdl_tuition_adjustments').select('id, tuition_account_id, installment_id, kind, amount_cents, reason, created_at').in('tuition_account_id', ids).order('created_at', { ascending: false }),
+    ]) : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }]
+    const { data: financing } = await supabase.from('cdl_financing_referrals')
+      .select('id, tuition_account_id, status, approved_amount_cents, funded_amount_cents, last_referred_at, updated_at')
+      .eq('user_id', req.user.id).maybeSingle()
+    const payable = await selfPayOptions(req.user.id, accounts || [])
+    res.json({ accounts: accounts || [], installments: installments || [], payments: payments || [], agreements: agreements || [], adjustments: adjustments || [], financing, payable })
+  } catch (error) {
+    console.error('Error loading tuition billing:', error)
+    res.status(500).json({ error: 'Could not load your tuition account.' })
+  }
+})
+
+// Training applications a self-paid tuition account can be linked to.
+// Drafts and rejections are excluded.
+const SELF_PAY_APPLICATION_STATUSES = ['SUBMITTED', 'UNDER_REVIEW', 'INFO_REQUIRED', 'APPROVED', 'SCHEDULED']
+
+// Courses a student may pay for by card right after registering, without
+// financing or waiting for admissions. Offered only while the student has no
+// open tuition account, so nobody is billed twice.
+async function selfPayOptions(userId, accounts) {
+  if (accounts.some(row => row.status !== 'CLOSED')) return []
+  const [{ data: courses }, { data: applications }] = await Promise.all([
+    supabase.from('cdl_courses').select('id, name, code, tuition_cents, deposit_cents, installment_count, installments_enabled').eq('active', true).gt('tuition_cents', 0).order('name'),
+    supabase.from('cdl_class_applications').select('id, reference_no, course_id').eq('user_id', userId)
+      .eq('application_type', 'TRAINING').in('status', SELF_PAY_APPLICATION_STATUSES).order('created_at', { ascending: false }),
+  ])
+  return (courses || []).map(course => {
+    const application = (applications || []).find(row => row.course_id === course.id)
+    const { id, ...details } = course
+    return { courseId: id, course: details, application: application ? { id: application.id, reference_no: application.reference_no } : null }
+  })
+}
+
+// Attaches a tuition account the student opened before applying to the
+// training application they submit later for the same course.
+async function linkSelfPaidAccount(userId, application) {
+  if (application.application_type !== 'TRAINING' || !application.course_id) return
+  const { error } = await supabase.from('cdl_tuition_accounts').update({ application_id: application.id, updated_at: new Date().toISOString() })
+    .eq('user_id', userId).eq('course_id', application.course_id).is('application_id', null).neq('status', 'CLOSED')
+  if (error) console.error('Could not link tuition account to application:', error)
+}
+
+// Opens a tuition account at the course's list price so a student who does
+// not want financing can pay by card. Admissions can still adjust it later.
+app.post('/api/me/tuition-accounts', studentOnly, async (req, res) => {
+  try {
+    const unavailable = requireClients(res)
+    if (unavailable) return res.status(503).json(unavailable)
+    const parsed = z.object({ courseId: uuidSchema }).strict().safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose a course to pay for.' })
+    const { data: course } = await supabase.from('cdl_courses')
+      .select('id, active, tuition_cents, deposit_cents, installment_count, installments_enabled').eq('id', parsed.data.courseId).maybeSingle()
+    if (!course?.active) return res.status(404).json({ error: 'Course not found.' })
+    if (!course.tuition_cents) return res.status(409).json({ error: 'Tuition for this course is not set yet. Contact admissions to pay.' })
+    const { data: student } = await supabase.from('cdl_students').select('id').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+
+    const { data: open } = await supabase.from('cdl_tuition_accounts').select('id, course_id').eq('user_id', req.user.id).neq('status', 'CLOSED')
+    const existing = (open || []).find(row => row.course_id === course.id)
+    if (existing) return res.json({ tuitionAccountId: existing.id })
+    if (open?.length) return res.status(409).json({ error: 'You already have a tuition account. Contact admissions to change your course.' })
+
+    const { data: linkable } = await supabase.from('cdl_class_applications').select('id').eq('user_id', req.user.id)
+      .eq('application_type', 'TRAINING').eq('course_id', course.id).in('status', SELF_PAY_APPLICATION_STATUSES)
+      .order('created_at', { ascending: false }).limit(1)
+    const depositCents = Math.min(course.deposit_cents || 0, course.tuition_cents)
+    const installmentCount = course.installments_enabled ? course.installment_count : 1
+    // The database links any existing Liberty referral to the new account.
+    const { data: account, error } = await supabase.from('cdl_tuition_accounts').insert({
+      user_id: req.user.id, student_id: student.id, application_id: linkable?.[0]?.id || null, course_id: course.id,
+      tuition_cents: course.tuition_cents, deposit_cents: depositCents, installment_count: installmentCount,
+      installments_enabled: installmentCount > 1, created_by: req.user.id, updated_by: req.user.id,
+    }).select('id').single()
+    if (error) {
+      // A concurrent request opened it first (unique indexes on application and self-paid course).
+      if (error.code === '23505') {
+        const { data: raced } = await supabase.from('cdl_tuition_accounts').select('id').eq('user_id', req.user.id).eq('course_id', course.id).neq('status', 'CLOSED').limit(1).single()
+        return res.json({ tuitionAccountId: raced.id })
+      }
+      throw error
+    }
+    const installments = installmentSchedule({ tuitionCents: course.tuition_cents, depositCents, installmentCount })
+      .map(item => ({ ...item, tuition_account_id: account.id }))
+    if (installments.length) {
+      const { error: scheduleError } = await supabase.from('cdl_tuition_installments').insert(installments)
+      if (scheduleError) console.error('Self-opened tuition account has no installment schedule:', scheduleError)
+    }
+    res.status(201).json({ tuitionAccountId: account.id })
+  } catch (error) {
+    console.error('Error opening tuition account:', error)
+    res.status(500).json({ error: 'Could not start your tuition payment. Please try again.' })
+  }
+})
+
+const tuitionCheckoutSchema = z.object({
+  tuitionAccountId: z.string().uuid(),
+  kind: z.enum(['full', 'deposit', 'installment']),
+  installmentId: z.string().uuid().optional(),
+  paymentPolicyAccepted: z.literal(true),
+  paymentPolicySignature: z.string().trim().min(1).max(200),
+}).strict()
+
+app.post('/api/create-tuition-checkout', studentOnly, async (req, res) => {
+  try {
+    const unavailable = requireClients(res)
+    if (unavailable) return res.status(503).json(unavailable)
+    const parsed = tuitionCheckoutSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose a valid tuition payment and sign the agreement.' })
+    const input = parsed.data
+    const { data: student } = await supabase.from('cdl_students').select('id, first_name, last_name, email').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+    const policyError = paymentPolicyError(input, student.first_name, student.last_name)
+    if (policyError) return res.status(400).json({ error: policyError })
+
+    // The balance view is the ledger's single source of truth: it already
+    // accounts for refunds, waivers and funded financing.
+    const { data: account } = await supabase.from('cdl_tuition_account_balances')
+      .select('*, course:cdl_courses(name, code)').eq('id', input.tuitionAccountId).eq('user_id', req.user.id).maybeSingle()
+    if (!account || account.status === 'CLOSED') return res.status(404).json({ error: 'Tuition account not found.' })
+    const remainingCents = account.remaining_cents
+    if (!remainingCents) return res.status(409).json({ error: 'This tuition account is already paid in full.' })
+
+    let installment = null
+    let amountCents = remainingCents
+    if (input.kind === 'deposit') {
+      if (!account.deposit_cents) return res.status(409).json({ error: 'A deposit option is not configured for this tuition account.' })
+      amountCents = tuitionPaymentAmount({ kind: 'deposit', remainingCents, depositCents: account.deposit_cents })
+    } else if (input.kind === 'installment') {
+      if (!account.installments_enabled || !input.installmentId) return res.status(409).json({ error: 'Installments are not available for this tuition account.' })
+      const result = await supabase.from('cdl_tuition_installments').select('*').eq('id', input.installmentId).eq('tuition_account_id', account.id).maybeSingle()
+      installment = result.data
+      // PENDING means this installment's own checkout is still open; the
+      // pending-checkout check below reuses or replaces it.
+      if (!installment || !['DUE', 'PENDING'].includes(installment.status)) return res.status(409).json({ error: 'That installment is no longer payable.' })
+      amountCents = tuitionPaymentAmount({ kind: 'installment', remainingCents, installmentCents: installment.amount_cents })
+    }
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > remainingCents) return res.status(400).json({ error: 'Invalid tuition payment amount.' })
+
+    // At most one open checkout per account (enforced by a unique index).
+    const { data: pending } = await supabase.from('cdl_payments').select('*')
+      .eq('tuition_account_id', account.id).in('status', ['pending', 'processing']).maybeSingle()
+    if (pending?.status === 'processing') {
+      return res.status(409).json({ error: 'Your previous tuition payment is still processing. Check back shortly before paying again.' })
+    }
+    if (pending) {
+      let session = null
+      if (pending.stripe_checkout_session_id) {
+        try { session = await stripe.checkout.sessions.retrieve(pending.stripe_checkout_session_id) } catch { session = null }
+      }
+      let action = pendingCheckoutAction({ session, payment: pending, kind: input.kind, installmentId: installment?.id, amountCents })
+      if (action === 'reuse') return res.json({ sessionId: session.id, url: session.url, reused: true })
+      if (action === 'replace' && session?.status === 'open') {
+        try {
+          await stripe.checkout.sessions.expire(session.id)
+        } catch {
+          // The student may have just paid in another tab; never charge twice.
+          session = await stripe.checkout.sessions.retrieve(session.id)
+          action = pendingCheckoutAction({ session, payment: pending, kind: input.kind, installmentId: installment?.id, amountCents })
+        }
+      }
+      if (action === 'finalize') {
+        if (session.payment_status === 'paid') {
+          await finalizeSuccessfulPayment(
+            { ...pending, stripe_payment_intent_id: session.payment_intent || pending.stripe_payment_intent_id },
+            session.amount_total, session.currency,
+          )
+          return res.status(409).json({ error: 'Your previous tuition payment was received. Refresh to see your updated balance.' })
+        }
+        return res.status(409).json({ error: 'Your previous tuition payment is still processing. Check back shortly before paying again.' })
+      }
+      await cancelPendingPayment(pending)
+    }
+
+    const acceptedAt = new Date().toISOString()
+    const { data: agreement, error: agreementError } = await supabase.from('cdl_payment_agreements').insert({
+      user_id: req.user.id, student_id: student.id, tuition_account_id: account.id,
+      version: TUITION_AGREEMENT_VERSION, agreement_text: TUITION_AGREEMENT_TEXT,
+      signer_name: input.paymentPolicySignature.trim(), accepted_at: acceptedAt,
+      ip_address: req.ip || null, user_agent: String(req.headers['user-agent'] || '').slice(0, 500) || null,
+    }).select().single()
+    if (agreementError) throw agreementError
+
+    const { data: payment, error: paymentError } = await supabase.from('cdl_payments').insert({
+      student_id: student.id, tuition_account_id: account.id, installment_id: installment?.id || null, payment_method: 'stripe',
+      amount_cents: amountCents, currency: account.currency, status: 'pending', payment_type: 'tuition', payment_kind: input.kind,
+      customer_email: student.email || req.user.email, agreement_id: agreement.id,
+      metadata: { firstName: student.first_name, lastName: student.last_name, tuitionAccountId: account.id,
+        installmentId: installment?.id || null, courseName: account.course?.name || 'CDL Training', expected_amount: amountCents,
+        payment_policy_version: TUITION_AGREEMENT_VERSION, payment_policy_signature: input.paymentPolicySignature.trim(), payment_policy_accepted_at: acceptedAt },
+    }).select().single()
+    if (paymentError) {
+      // A concurrent request opened a checkout first (unique index).
+      if (paymentError.code === '23505') return res.status(409).json({ error: 'A tuition checkout is already open. Wait a moment and try again.' })
+      throw paymentError
+    }
+    await supabase.from('cdl_payment_agreements').update({ payment_id: payment.id }).eq('id', agreement.id)
+
+    const label = input.kind === 'full' ? 'Full tuition payment' : input.kind === 'deposit' ? 'Tuition deposit' : installment.label
+    let session
+    try {
+      session = await stripe.checkout.sessions.create({
+        mode: 'payment', payment_method_types: ['card'], customer_email: student.email || req.user.email,
+        line_items: [{ price_data: { currency: account.currency, product_data: { name: label, description: `${account.course?.name || 'CDL Training'} — Iman Trucking School` }, unit_amount: amountCents }, quantity: 1 }],
+        custom_text: stripePolicyCustomText(),
+        // Abandoned checkouts release the account quickly (Stripe minimum is 30 minutes).
+        expires_at: Math.floor(Date.now() / 1000) + TUITION_CHECKOUT_TTL_SECONDS,
+        success_url: checkoutReturnUrl(req, '/portal/billing/', 'success'), cancel_url: checkoutReturnUrl(req, '/portal/billing/', 'canceled'),
+        metadata: { payment_id: payment.id, student_id: student.id, tuition_account_id: account.id, installment_id: installment?.id || '', payment_type: 'tuition', expected_amount: String(amountCents), agreement_id: agreement.id },
+        payment_intent_data: { metadata: { payment_id: payment.id, payment_type: 'tuition' } },
+      }, { idempotencyKey: `tuition-checkout-${payment.id}` })
+    } catch (error) {
+      // Without a Session the pending row would block the account forever.
+      await cancelPendingPayment(payment, 'Stripe Checkout could not be created')
+      throw error
+    }
+    await supabase.from('cdl_payments').update({ stripe_checkout_session_id: session.id, updated_at: new Date().toISOString() }).eq('id', payment.id)
+    if (installment) await supabase.from('cdl_tuition_installments').update({ status: 'PENDING', updated_at: new Date().toISOString() }).eq('id', installment.id)
+    res.json({ sessionId: session.id, url: session.url })
+  } catch (error) {
+    console.error('Error creating tuition checkout:', error)
+    res.status(500).json({ error: 'Failed to create tuition checkout.' })
+  }
+})
+
+const TUITION_CHECKOUT_TTL_SECONDS = 35 * 60
+
+// Cancels a checkout attempt that was never paid and frees its installment.
+async function cancelPendingPayment(payment, reason = 'Replaced by a new checkout') {
+  const { data: canceled } = await supabase.from('cdl_payments')
+    .update({ status: 'canceled', error_message: reason, updated_at: new Date().toISOString() })
+    .eq('id', payment.id).in('status', ['pending', 'processing']).select()
+  if (canceled?.length) await markRelatedRecord(payment, { registration: 'canceled', application: 'canceled' })
+}
+
+// Students may read their own billing documents; tuition admins may read any.
+const ADMIN_ROLES = ['admin', 'super_admin']
+
+async function requireStudentOrAdmin(req, res, next) {
+  try {
+    const { data: profile, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
+    if (error) throw error
+    if (!profile?.active || !['student', ...ADMIN_ROLES].includes(profile.role)) return res.status(403).json({ error: 'Access denied.' })
+    req.isAdmin = ADMIN_ROLES.includes(profile.role)
+    next()
+  } catch (error) {
+    console.error('Failed to authorize billing document access:', error)
+    res.status(503).json({ error: 'Could not verify your account access. Try again shortly.' })
+  }
+}
+
+async function requireTuitionAdmin(req, res, next) {
+  try {
+    const { data: profile, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
+    if (error) throw error
+    if (!profile?.active || !ADMIN_ROLES.includes(profile.role)) return res.status(403).json({ error: 'Admin access required.' })
+    next()
+  } catch (error) {
+    console.error('Failed to authorize admin:', error)
+    res.status(503).json({ error: 'Could not verify your account access. Try again shortly.' })
+  }
+}
+
+const adminOnly = [requireUser, requireTuitionAdmin, rateLimit]
+
+const PAYMENT_METHOD_LABELS = { stripe: 'Card (Stripe)', cash: 'Cash', check: 'Check', money_order: 'Money order', other: 'Other' }
+
+function receiptNumberFor(paymentId) {
+  return `IMAN-${paymentId.replace(/-/g, '').slice(0, 12).toUpperCase()}`
+}
+
+function pdfFields(doc, rows) {
+  for (const [label, value] of rows) doc.font('Helvetica-Bold').text(`${label}: `, { continued: true }).font('Helvetica').text(String(value || '—'))
+}
+
+app.get('/api/payments/:id/receipt', requireUser, requireStudentOrAdmin, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid payment id.' })
+  try {
+    const { data: payment } = await supabase.from('cdl_payments')
+      .select('*, account:cdl_tuition_accounts!tuition_account_id(user_id, course:cdl_courses(name))')
+      .eq('id', req.params.id).in('status', ['succeeded', 'refunded']).maybeSingle()
+    if (!payment?.account || (!req.isAdmin && payment.account.user_id !== req.user.id)) return res.status(404).json({ error: 'Receipt not found.' })
+    const receipt = payment.receipt_number || receiptNumberFor(payment.id)
+    const money = cents => `$${(cents / 100).toFixed(2)} ${String(payment.currency).toUpperCase()}`
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="${receipt}.pdf"`)
+    const doc = new PDFDocument({ size: 'LETTER', margin: 54, info: { Title: `Receipt ${receipt}`, Author: 'Iman Trucking School' } })
+    doc.pipe(res)
+    doc.fontSize(20).fillColor('#08085f').text('IMAN TRUCKING SCHOOL')
+    doc.moveDown().fontSize(16).text('Payment Receipt')
+    doc.moveDown().fontSize(11).fillColor('#222')
+    const method = payment.payment_method || 'stripe'
+    pdfFields(doc, [
+      ['Receipt', receipt], ['Program', payment.account.course?.name || 'CDL Training'],
+      ['Amount', money(payment.amount_cents)],
+      ...(payment.refunded_cents > 0 ? [['Refunded', money(payment.refunded_cents)]] : []),
+      ['Payment type', payment.payment_kind || 'Tuition'], ['Payment method', PAYMENT_METHOD_LABELS[method] || method],
+      ['Paid', new Date(payment.succeeded_at).toLocaleString('en-US')],
+      method === 'stripe'
+        ? ['Stripe transaction', payment.stripe_payment_intent_id || payment.stripe_checkout_session_id]
+        : ['Reference', payment.metadata?.reference],
+    ])
+    doc.moveDown(2).fillColor('#555').text('Thank you for your payment. Keep this receipt for your records.')
+    doc.end()
+  } catch (error) {
+    console.error('Error generating receipt:', error)
+    if (!res.headersSent) res.status(500).json({ error: 'Could not generate the receipt.' })
+  }
+})
+
+// Signed tuition agreement, rendered from the stored snapshot exactly as the
+// student accepted it.
+app.get('/api/agreements/:id/pdf', requireUser, requireStudentOrAdmin, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid agreement id.' })
+  try {
+    const { data: agreement } = await supabase.from('cdl_payment_agreements')
+      .select('*, payment:cdl_payments!payment_id(amount_cents, currency, payment_kind, receipt_number)')
+      .eq('id', req.params.id).maybeSingle()
+    if (!agreement || (!req.isAdmin && agreement.user_id !== req.user.id)) return res.status(404).json({ error: 'Agreement not found.' })
+    const name = `IMAN-AGREEMENT-${agreement.id.slice(0, 8).toUpperCase()}`
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="${name}.pdf"`)
+    const doc = new PDFDocument({ size: 'LETTER', margin: 54, info: { Title: 'Tuition payment agreement', Author: 'Iman Trucking School' } })
+    doc.pipe(res)
+    doc.fontSize(20).fillColor('#08085f').text('IMAN TRUCKING SCHOOL')
+    doc.moveDown().fontSize(16).text('Tuition Payment Agreement')
+    doc.moveDown().fontSize(11).fillColor('#222').font('Helvetica').text(agreement.agreement_text, { align: 'left' })
+    doc.moveDown(1.5)
+    pdfFields(doc, [
+      ['Signed by', agreement.signer_name], ['Accepted', new Date(agreement.accepted_at).toLocaleString('en-US')],
+      ['Agreement version', agreement.version],
+      ...(agreement.payment ? [['Payment', `$${(agreement.payment.amount_cents / 100).toFixed(2)} ${String(agreement.payment.currency).toUpperCase()} (${agreement.payment.payment_kind || 'tuition'})`]] : []),
+      ...(agreement.payment?.receipt_number ? [['Receipt', agreement.payment.receipt_number]] : []),
+      ['Agreement ID', agreement.id],
+    ])
+    doc.moveDown(2).fillColor('#555').text('The signer typed their full legal name as an electronic signature before checkout.')
+    doc.end()
+  } catch (error) {
+    console.error('Error generating agreement:', error)
+    if (!res.headersSent) res.status(500).json({ error: 'Could not generate the agreement.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Admin tuition actions. Written with the service role so every change is
+// validated and audited here; clients cannot write payments or waivers.
+// ---------------------------------------------------------------------------
+
+const manualPaymentSchema = z.object({
+  amountCents: z.number().int().positive().max(10000000),
+  method: z.enum(['cash', 'check', 'money_order', 'other']),
+  installmentId: z.string().uuid().optional(),
+  reference: z.string().trim().max(100).optional(),
+  note: z.string().trim().max(500).optional(),
+}).strict()
+
+const reasonSchema = z.object({ reason: z.string().trim().min(3).max(500) }).strict()
+
+// An admin action must not race a student's open Stripe checkout: an open
+// one is expired first, and one that was already paid is finalized instead.
+async function releaseTuitionCheckout(accountId) {
+  const { data: pending } = await supabase.from('cdl_payments').select('*')
+    .eq('tuition_account_id', accountId).in('status', ['pending', 'processing']).maybeSingle()
+  if (!pending) return null
+  if (pending.status === 'processing') return 'A student payment is still processing. Try again once it completes.'
+  let session = null
+  if (pending.stripe_checkout_session_id && stripe) {
+    try { session = await stripe.checkout.sessions.retrieve(pending.stripe_checkout_session_id) } catch { session = null }
+    if (session?.status === 'open') {
+      try { await stripe.checkout.sessions.expire(session.id) } catch { session = await stripe.checkout.sessions.retrieve(session.id) }
+    }
+  }
+  if (session?.payment_status === 'paid') {
+    await finalizeSuccessfulPayment({ ...pending, stripe_payment_intent_id: session.payment_intent || pending.stripe_payment_intent_id }, session.amount_total, session.currency)
+    return 'The student just paid online. Review the updated balance before recording anything else.'
+  }
+  if (session?.status === 'complete') return 'A student payment is still processing. Try again once it completes.'
+  await cancelPendingPayment(pending, 'Canceled by an admin action')
+  return null
+}
+
+app.post('/api/admin/tuition-accounts/:id/payments', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid tuition account.' })
+  const parsed = manualPaymentSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Enter a valid amount and payment method.' })
+  const input = parsed.data
+  try {
+    const { data: account } = await supabase.from('cdl_tuition_account_balances')
+      .select('*, student:cdl_students(first_name, last_name, email), course:cdl_courses(name)').eq('id', req.params.id).maybeSingle()
+    if (!account || account.status === 'CLOSED') return res.status(404).json({ error: 'Tuition account not found.' })
+    const blocked = await releaseTuitionCheckout(account.id)
+    if (blocked) return res.status(409).json({ error: blocked })
+    const { data: current } = await supabase.from('cdl_tuition_account_balances').select('remaining_cents').eq('id', account.id).single()
+    if (input.amountCents > current.remaining_cents) return res.status(409).json({ error: 'The amount is more than the remaining balance.' })
+
+    let installment = null
+    if (input.installmentId) {
+      const { data } = await supabase.from('cdl_tuition_installments').select('*').eq('id', input.installmentId).eq('tuition_account_id', account.id).maybeSingle()
+      installment = data
+      if (!installment || installment.status !== 'DUE') return res.status(409).json({ error: 'That installment is not due.' })
+      if (input.amountCents !== Math.min(installment.amount_cents, current.remaining_cents)) return res.status(400).json({ error: 'The amount must match the installment.' })
+    }
+
+    const id = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const { data: payment, error } = await supabase.from('cdl_payments').insert({
+      id, student_id: account.student_id, tuition_account_id: account.id, installment_id: installment?.id || null,
+      amount_cents: input.amountCents, currency: account.currency, status: 'succeeded', succeeded_at: now,
+      payment_type: 'tuition', payment_kind: installment ? 'installment' : null, payment_method: input.method,
+      receipt_number: receiptNumberFor(id), recorded_by: req.user.id, customer_email: account.student?.email || null,
+      metadata: {
+        firstName: account.student?.first_name || '', lastName: account.student?.last_name || '', courseName: account.course?.name || 'CDL Training',
+        reference: input.reference || null, note: input.note || null, recorded_by_email: req.user.email,
+      },
+    }).select().single()
+    if (error) throw error
+    if (installment) await supabase.from('cdl_tuition_installments').update({ status: 'PAID', updated_at: now }).eq('id', installment.id)
+    await sendPaymentNotifications(payment)
+    res.status(201).json({ payment })
+  } catch (error) {
+    console.error('Error recording offline tuition payment:', error)
+    res.status(500).json({ error: 'Could not record the payment.' })
+  }
+})
+
+// Offline payments entered by mistake are voided, never deleted.
+app.post('/api/admin/tuition-payments/:id/void', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid payment.' })
+  const parsed = reasonSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Enter a reason of at least 3 characters.' })
+  try {
+    const { data: payment } = await supabase.from('cdl_payments').select('*').eq('id', req.params.id).eq('payment_type', 'tuition').maybeSingle()
+    if (!payment) return res.status(404).json({ error: 'Payment not found.' })
+    if (payment.payment_method === 'stripe') return res.status(409).json({ error: 'Card payments are refunded in Stripe, not voided.' })
+    const now = new Date().toISOString()
+    const { data: voided } = await supabase.from('cdl_payments').update({
+      status: 'canceled', error_message: `Voided: ${parsed.data.reason}`, updated_at: now,
+      metadata: { ...(payment.metadata || {}), voided_by: req.user.id, voided_by_email: req.user.email, voided_at: now, void_reason: parsed.data.reason },
+    }).eq('id', payment.id).eq('status', 'succeeded').select()
+    if (!voided?.length) return res.status(409).json({ error: 'Only a recorded payment can be voided.' })
+    if (payment.installment_id) await supabase.from('cdl_tuition_installments').update({ status: 'DUE', updated_at: now }).eq('id', payment.installment_id).eq('status', 'PAID')
+    res.json({ payment: voided[0] })
+  } catch (error) {
+    console.error('Error voiding tuition payment:', error)
+    res.status(500).json({ error: 'Could not void the payment.' })
+  }
+})
+
+app.post('/api/admin/tuition-installments/:id/waive', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid installment.' })
+  const parsed = reasonSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Enter a reason of at least 3 characters.' })
+  try {
+    const { data: installment } = await supabase.from('cdl_tuition_installments').select('*').eq('id', req.params.id).maybeSingle()
+    if (!installment) return res.status(404).json({ error: 'Installment not found.' })
+    if (installment.status !== 'DUE') return res.status(409).json({ error: 'Only a due installment can be waived.' })
+    const { data: account } = await supabase.from('cdl_tuition_account_balances').select('id, remaining_cents, status').eq('id', installment.tuition_account_id).single()
+    const amountCents = Math.min(installment.amount_cents, account.remaining_cents)
+    if (account.status === 'CLOSED' || amountCents <= 0) return res.status(409).json({ error: 'Nothing is left to waive on this account.' })
+    const { data: adjustment, error } = await supabase.from('cdl_tuition_adjustments').insert({
+      tuition_account_id: account.id, installment_id: installment.id, amount_cents: amountCents, reason: parsed.data.reason, created_by: req.user.id,
+    }).select().single()
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'This installment was already waived.' })
+      throw error
+    }
+    await supabase.from('cdl_tuition_installments').update({ status: 'WAIVED', updated_at: new Date().toISOString() }).eq('id', installment.id)
+    res.status(201).json({ adjustment })
+  } catch (error) {
+    console.error('Error waiving installment:', error)
+    res.status(500).json({ error: 'Could not waive the installment.' })
   }
 })
 
@@ -845,12 +1363,13 @@ app.post('/api/applications/:id/notify', studentOnly, async (req, res) => {
   try {
     const application = await loadOwnApplication(
       req, res, req.params.id,
-      'application_type, reference_no, first_name, last_name, email, phone, statement, preferred_dates, form_data, submitted_at, course:cdl_courses(name), session:cdl_academic_sessions(name)'
+      'application_type, reference_no, course_id, first_name, last_name, email, phone, statement, preferred_dates, form_data, submitted_at, course:cdl_courses(name), session:cdl_academic_sessions(name)'
     )
     if (!application) return
     if (application.status !== 'SUBMITTED') {
       return res.status(409).json({ error: 'Only submitted applications are sent to admissions.' })
     }
+    await linkSelfPaidAccount(req.user.id, application)
 
     const key = `${application.id}:${application.submitted_at}`
     if (!resend || notifiedSubmissions.has(key)) return res.json({ sent: false })
@@ -1008,6 +1527,63 @@ const instructorSchema = z.object({
   password: z.string().min(10, 'Password must be at least 10 characters.').max(72),
 })
 
+async function requireSuperAdmin(req, res, next) {
+  try {
+    const { data: caller, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
+    if (error) throw error
+    if (!caller?.active || caller.role !== 'super_admin' || req.user.email.trim().toLowerCase() !== SUPER_ADMIN_EMAIL) {
+      return res.status(403).json({ error: 'Only super administrators can manage course pricing.' })
+    }
+    next()
+  } catch (error) {
+    console.error('Failed to authorize super admin:', error)
+    res.status(503).json({ error: 'Could not verify your account access. Try again shortly.' })
+  }
+}
+
+const superAdminOnly = [requireUser, requireSuperAdmin, rateLimit]
+const COURSE_PRICING_COLUMNS = 'id, code, name, active, tuition_cents, deposit_cents, installment_count, installments_enabled, updated_at'
+
+app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_courses').select(COURSE_PRICING_COLUMNS).order('name')
+    if (error) throw error
+    res.json({ courses: data || [] })
+  } catch (error) {
+    console.error('Error loading course pricing:', error)
+    res.status(500).json({ error: 'Could not load course pricing.' })
+  }
+})
+
+const coursePricingSchema = z.object({
+  tuitionCents: z.number().int().min(0).max(10000000),
+  depositCents: z.number().int().min(0).max(10000000),
+  installmentCount: z.number().int().min(1).max(24),
+}).strict()
+  .refine(input => input.depositCents <= input.tuitionCents, 'The deposit cannot be more than the tuition.')
+
+// New prices apply to tuition accounts opened afterwards; existing accounts
+// keep the price the student agreed to.
+app.patch('/api/admin/courses/:id/pricing', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid course id.' })
+    const parsed = coursePricingSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Enter a valid tuition, deposit and installment count.' })
+    const { tuitionCents, depositCents, installmentCount } = parsed.data
+    const { data, error } = await supabase.from('cdl_courses').update({
+      tuition_cents: tuitionCents, deposit_cents: depositCents, installment_count: installmentCount,
+      installments_enabled: installmentCount > 1, updated_at: new Date().toISOString(),
+    }).eq('id', req.params.id).select(COURSE_PRICING_COLUMNS).maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Course not found.' })
+    console.info(`Course pricing updated by ${req.user.email}: ${data.code} tuition=${tuitionCents} deposit=${depositCents} installments=${installmentCount}`)
+    res.json({ course: data })
+  } catch (error) {
+    console.error('Error updating course pricing:', error)
+    res.status(500).json({ error: 'Could not update course pricing.' })
+  }
+})
+
 app.post('/api/admin/instructors', requireUser, rateLimit, async (req, res) => {
   try {
     const { data: caller } = await supabase
@@ -1085,6 +1661,14 @@ async function markRelatedRecord(payment, statusFieldMap) {
       .from('cdl_class_applications')
       .update({ payment_status: statusFieldMap.application })
       .eq('id', payment.application_id)
+  } else if (payment.payment_type === 'tuition' && payment.tuition_account_id) {
+    if (payment.installment_id) {
+      const next = statusFieldMap.registration === 'paid' ? 'PAID'
+        : statusFieldMap.registration === 'processing' ? 'PENDING'
+          : ['failed', 'canceled', 'refunded'].includes(statusFieldMap.registration) ? 'DUE' : null
+      if (next) await supabase.from('cdl_tuition_installments').update({ status: next, updated_at: new Date().toISOString() }).eq('id', payment.installment_id)
+    }
+    await supabase.rpc('sync_tuition_account', { p_account_id: payment.tuition_account_id })
   }
 }
 
@@ -1159,6 +1743,9 @@ async function handleCheckoutSessionCompleted(session) {
       .from('cdl_class_applications')
       .update({ payment_status: 'processing', payment_id })
       .eq('id', session.metadata.application_id)
+  } else if (payment_type === 'tuition' && session.metadata?.tuition_account_id) {
+    if (session.metadata?.installment_id) await supabase.from('cdl_tuition_installments').update({ status: 'PENDING', updated_at: new Date().toISOString() }).eq('id', session.metadata.installment_id)
+    await supabase.rpc('sync_tuition_account', { p_account_id: session.metadata.tuition_account_id })
   }
 
   // For immediate payment methods, Checkout already confirms that the Session
@@ -1187,7 +1774,7 @@ async function handleCheckoutSessionAsyncPaymentFailed(session) {
     .eq('id', payment_id)
     .maybeSingle()
 
-  if (!payment || ['succeeded', 'refunded'].includes(payment.status)) return
+  if (!payment || ['succeeded', 'refunded', 'canceled'].includes(payment.status)) return
 
   await supabase
     .from('cdl_payments')
@@ -1211,7 +1798,9 @@ async function handleCheckoutSessionExpired(session) {
     .eq('id', payment_id)
     .maybeSingle()
 
-  if (existing && ['succeeded', 'refunded'].includes(existing.status)) return
+  // Only an open attempt can expire. A replaced tuition checkout was already
+  // canceled, and its installment may now belong to a newer checkout.
+  if (!existing || !['pending', 'processing'].includes(existing.status)) return
 
   await supabase
     .from('cdl_payments')
@@ -1262,11 +1851,13 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
   // sending notifications - this is what makes retries/duplicate Stripe
   // events safe against duplicate emails/SMS.
   const succeededAt = new Date().toISOString()
+  const receiptNumber = payment.receipt_number || `IMAN-${payment.id.replace(/-/g, '').slice(0, 12).toUpperCase()}`
   const { data: updatedRows } = await supabase
     .from('cdl_payments')
     .update({
       status: 'succeeded',
       succeeded_at: succeededAt,
+      receipt_number: receiptNumber,
       updated_at: succeededAt,
     })
     .eq('id', payment.id)
@@ -1281,6 +1872,27 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
 
   await markRelatedRecord(finalizedPayment, { registration: 'paid', application: 'paid' })
   await sendPaymentNotifications(finalizedPayment)
+  if (finalizedPayment.tuition_account_id) await alertTuitionCredit(finalizedPayment.tuition_account_id)
+}
+
+// A payment can land after financing was funded (or vice versa) and leave the
+// account overpaid. Tell admissions so the credit can be refunded.
+async function alertTuitionCredit(accountId) {
+  try {
+    const { data: account } = await supabase.from('cdl_tuition_account_balances')
+      .select('id, credit_cents, currency, student:cdl_students(first_name, last_name, email)').eq('id', accountId).maybeSingle()
+    if (!account?.credit_cents || !resend) return
+    const name = `${account.student?.first_name || ''} ${account.student?.last_name || ''}`.trim() || 'A student'
+    const amount = `$${(account.credit_cents / 100).toFixed(2)}`
+    await resend.emails.send({
+      from: emailFrom,
+      to: adminNotificationEmail,
+      subject: `Tuition credit due - ${name}`,
+      html: `<p><strong>${escapeHtml(name)}</strong> (${escapeHtml(account.student?.email || 'no email')}) has paid ${amount} more than the remaining tuition after financing.</p><p>Review the account under Admin &rarr; Tuition accounts and refund the credit in Stripe if appropriate.</p>`,
+    })
+  } catch (error) {
+    console.error('Failed to send tuition credit alert:', error)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,11 +1908,10 @@ function buildNotificationContext(payment) {
   const lastName = md.lastName || ''
   const name = `${firstName} ${lastName}`.trim() || 'Customer'
   const amount = `$${((payment.amount_cents || 0) / 100).toFixed(2)}`
-  const program =
-    payment.payment_type === 'application'
-      ? md.courseName || 'CDL Training Course'
-      : 'CDL Student Registration'
-  const transactionId = payment.stripe_payment_intent_id || payment.stripe_checkout_session_id || payment.id
+  const program = payment.payment_type === 'application'
+    ? md.courseName || 'CDL Training Course'
+    : payment.payment_type === 'tuition' ? `${md.courseName || 'CDL Training'} tuition` : 'CDL Student Registration'
+  const transactionId = payment.stripe_payment_intent_id || payment.stripe_checkout_session_id || payment.receipt_number || payment.id
   const date = new Date(payment.succeeded_at || Date.now()).toLocaleString('en-US', {
     dateStyle: 'long',
     timeStyle: 'short',
@@ -1322,7 +1933,7 @@ function buildNotificationContext(payment) {
 // on demand rather than storing a copy on cdl_payments.
 async function getRecipientPhone(payment) {
   try {
-    if (payment.payment_type === 'registration' && payment.student_id) {
+    if (['registration', 'tuition'].includes(payment.payment_type) && payment.student_id) {
       const { data } = await supabase.from('cdl_students').select('phone').eq('id', payment.student_id).maybeSingle()
       return data?.phone || null
     }
@@ -1373,29 +1984,42 @@ function paymentNotificationSmsText(ctx, { forAdmin }) {
 async function sendPaymentNotifications(payment) {
   const ctx = buildNotificationContext(payment)
 
+  const logDelivery = async (channel, audience, recipient, status, providerId = '', error = '') => {
+    try {
+      await supabase.from('cdl_notification_log').upsert({
+        payment_id: payment.id, channel, audience, recipient: recipient || '', template: 'payment.confirmed', status,
+        provider_id: providerId || '', error: String(error || '').slice(0, 1000),
+      }, { onConflict: 'payment_id,channel,audience,template', ignoreDuplicates: true })
+    } catch (caught) { console.error('Failed to record notification delivery:', caught) }
+  }
+
   if (resend && payment.customer_email) {
     try {
-      await resend.emails.send({
+      const delivery = await resend.emails.send({
         from: emailFrom,
         to: payment.customer_email,
         subject: `Payment Confirmed${ctx.referenceNo ? ` - ${ctx.referenceNo}` : ''}`,
         html: paymentNotificationEmailHtml(ctx, { forAdmin: false }),
       })
+      await logDelivery('email', 'student', payment.customer_email, 'sent', delivery?.data?.id)
     } catch (error) {
       console.error('Failed to send student confirmation email:', error)
+      await logDelivery('email', 'student', payment.customer_email, 'failed', '', error?.message)
     }
   }
 
   if (resend) {
     try {
-      await resend.emails.send({
+      const delivery = await resend.emails.send({
         from: emailFrom,
         to: adminNotificationEmail,
         subject: `New payment received - ${ctx.program}`,
         html: paymentNotificationEmailHtml(ctx, { forAdmin: true }),
       })
+      await logDelivery('email', 'admin', adminNotificationEmail, 'sent', delivery?.data?.id)
     } catch (error) {
       console.error('Failed to send admin payment notification email:', error)
+      await logDelivery('email', 'admin', adminNotificationEmail, 'failed', '', error?.message)
     }
   }
 
@@ -1403,25 +2027,29 @@ async function sendPaymentNotifications(payment) {
     const phone = await getRecipientPhone(payment)
     if (phone) {
       try {
-        await twilioClient.messages.create({
+        const delivery = await twilioClient.messages.create({
           to: phone,
           from: twilioFromNumber,
           body: paymentNotificationSmsText(ctx, { forAdmin: false }),
         })
+        await logDelivery('sms', 'student', phone, 'sent', delivery.sid)
       } catch (error) {
         console.error('Failed to send student payment SMS:', error)
+        await logDelivery('sms', 'student', phone, 'failed', '', error?.message)
       }
     }
 
     if (adminNotificationPhone) {
       try {
-        await twilioClient.messages.create({
+        const delivery = await twilioClient.messages.create({
           to: adminNotificationPhone,
           from: twilioFromNumber,
           body: paymentNotificationSmsText(ctx, { forAdmin: true }),
         })
+        await logDelivery('sms', 'admin', adminNotificationPhone, 'sent', delivery.sid)
       } catch (error) {
         console.error('Failed to send admin payment SMS:', error)
+        await logDelivery('sms', 'admin', adminNotificationPhone, 'failed', '', error?.message)
       }
     }
   }
@@ -1447,17 +2075,21 @@ async function handlePaymentIntentFailed(paymentIntent) {
 
 async function handleChargeRefunded(charge) {
   const payment = await findPaymentByIntent(stripe, { id: charge.payment_intent })
-  if (!payment) return
+  if (!payment || payment.status === 'refunded') return
 
-  await supabase
-    .from('cdl_payments')
-    .update({
-      status: 'refunded',
-      refunded_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', payment.id)
-
+  // amount_refunded is cumulative, so replaying this event is harmless. A
+  // partial refund keeps the payment succeeded but reduces what counts as
+  // paid toward tuition (see cdl_tuition_account_balances).
+  const refundedCents = Math.min(Number(charge.amount_refunded) || 0, payment.amount_cents)
+  const now = new Date().toISOString()
+  if (!charge.refunded) {
+    await supabase.from('cdl_payments').update({
+      refunded_cents: refundedCents,
+      metadata: { ...(payment.metadata || {}), amount_refunded: charge.amount_refunded }, updated_at: now,
+    }).eq('id', payment.id)
+    return
+  }
+  await supabase.from('cdl_payments').update({ status: 'refunded', refunded_cents: payment.amount_cents, refunded_at: now, updated_at: now }).eq('id', payment.id)
   await markRelatedRecord(payment, { registration: 'refunded', application: 'refunded' })
 }
 
