@@ -12,3 +12,10 @@ export function pendingCheckoutAction(input: {
 export function installmentSchedule(input: { tuitionCents: number; depositCents?: number; installmentCount?: number }): {
   installment_no: number; label: string; amount_cents: number
 }[]
+export type FeeItem = { code: string; label: string; amount_cents: number }
+export const FEE_ITEMS: { code: string; column: string; label: string }[]
+export function coursePricing(course: Record<string, unknown>): {
+  currency: string; version: number; items: FeeItem[]; housingFeeCents: number
+  totalWithoutHousingCents: number; totalWithHousingCents: number
+}
+export function pricingTotal(items: FeeItem[] | null | undefined, housingFeeCents: number, housingSelected: boolean): number

@@ -66,6 +66,7 @@ export function toMessage(error: unknown): string {
 
   if (text === 'missing_document') return 'Upload your driver\'s license or CLP before submitting.'
   if (text === 'missing_assessment_test') return 'Complete the online English test before submitting your assessment request.'
+  if (text === 'identity_not_verified') return 'Verify your identity before submitting. Go to Identity verification in your portal.'
   if (text === 'invalid_transition') return 'This application can\'t be changed right now. Refresh the page to see its latest status.'
   if (text.startsWith('invalid_field:')) {
     const field = text.slice('invalid_field:'.length)

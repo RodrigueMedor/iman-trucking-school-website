@@ -38,3 +38,38 @@ export function installmentSchedule({ tuitionCents, depositCents = 0, installmen
     amount_cents: base + (index === installmentCount - 1 ? balance - base * installmentCount : 0),
   })).filter(item => item.amount_cents > 0)
 }
+
+// Itemized CDL pricing. Fees are integer cents; housing is optional and
+// never part of the base total.
+export const FEE_ITEMS = [
+  { code: 'training', column: 'training_cents', label: 'CDL Training - Sale Price' },
+  { code: 'testing', column: 'testing_fee_cents', label: 'Testing Fee' },
+  { code: 'administrative', column: 'administrative_fee_cents', label: 'Administrative Fee' },
+  { code: 'materials', column: 'materials_fee_cents', label: 'Materials Fee' },
+]
+
+const cents = value => {
+  const number = Number(value || 0)
+  if (!Number.isInteger(number) || number < 0) throw new Error('Invalid price')
+  return number
+}
+
+// Fee snapshot and totals for a course row. The training price is always
+// listed; other fees only when they are charged.
+export function coursePricing(course) {
+  const items = FEE_ITEMS.map(({ code, column, label }) => ({ code, label, amount_cents: cents(course[column]) }))
+    .filter(item => item.code === 'training' || item.amount_cents > 0)
+  const housingFeeCents = cents(course.housing_fee_cents)
+  const totalWithoutHousingCents = items.reduce((sum, item) => sum + item.amount_cents, 0)
+  return {
+    currency: course.currency || 'usd', version: course.pricing_version || 1, items, housingFeeCents,
+    totalWithoutHousingCents, totalWithHousingCents: totalWithoutHousingCents + housingFeeCents,
+  }
+}
+
+// What the student owes for a fee snapshot. Housing counts only when it was
+// offered and chosen.
+export function pricingTotal(items, housingFeeCents, housingSelected) {
+  const base = (items || []).reduce((sum, item) => sum + cents(item.amount_cents), 0)
+  return base + (housingSelected && cents(housingFeeCents) > 0 ? cents(housingFeeCents) : 0)
+}

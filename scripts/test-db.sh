@@ -21,7 +21,7 @@ SQL
   for f in supabase/migrations/*.sql; do
     "${PSQL[@]}" -1 -f - < "$f" >/dev/null || { echo "Migration failed: $f" >&2; exit 1; }
   done
-  for f in supabase/tests/portal_rls.sql supabase/tests/tuition_rls.sql; do
+  for f in supabase/tests/portal_rls.sql supabase/tests/tuition_rls.sql supabase/tests/identity_rls.sql; do
     [[ -f "$f" ]] && "${PSQL[@]}" -f - < "$f"
   done
 }

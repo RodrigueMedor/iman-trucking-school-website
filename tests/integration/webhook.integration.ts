@@ -18,6 +18,7 @@ const USERS: Record<string, { id: string; email: string }> = {
   'token-student': { id: '50000000-0000-0000-0000-0000000000a1', email: 'student@test.local' },
   'token-other': { id: '50000000-0000-0000-0000-0000000000b2', email: 'other@test.local' },
   'token-admin': { id: '50000000-0000-0000-0000-0000000000c3', email: 'admin@test.local' },
+  'token-new': { id: '50000000-0000-0000-0000-0000000000d4', email: 'new@test.local' },
 }
 
 const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url')
@@ -265,5 +266,218 @@ describe('admin tuition actions', () => {
     expect((await call('token-student', 'GET', path)).status).toBe(200)
     expect((await call('token-other', 'GET', path)).status).toBe(404)
     expect((await call('token-admin', 'GET', path)).status).toBe(200)
+  })
+})
+
+describe('CDL Training pricing with optional housing', () => {
+  const OTHER = USERS['token-other'].id
+  let courseId = ''
+  let accountId = ''
+  const account = async () => (await db.from('cdl_tuition_account_balances').select('*').eq('id', accountId).single()).data
+
+  beforeAll(async () => {
+    courseId = (await db.from('cdl_courses').select('id').eq('code', 'CDL-A').single()).data!.id
+  })
+
+  it('offers the itemized price, $3,429 without and $3,929 with housing', async () => {
+    const res = await call('token-other', 'GET', '/api/me/billing')
+    expect(res.status).toBe(200)
+    const option = (await res.json()).payable.find((item: { courseId: string }) => item.courseId === courseId)
+    expect(option.pricing).toMatchObject({ totalWithoutHousingCents: 342900, totalWithHousingCents: 392900, housingFeeCents: 50000 })
+    expect(option.pricing.items.map((item: { amount_cents: number }) => item.amount_cents)).toEqual([259900, 60000, 8000, 15000])
+  })
+
+  it('rejects prices sent by the browser', async () => {
+    expect((await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId, housingSelected: false, tuitionCents: 100 })).status).toBe(400)
+  })
+
+  it('opens the account without housing by default, with a fee snapshot', async () => {
+    const res = await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId })
+    expect(res.status).toBe(201)
+    accountId = (await res.json()).tuitionAccountId
+    const row = await account()
+    expect([row.tuition_cents, row.housing_selected, row.housing_fee_cents, row.fee_items.length, row.remaining_cents]).toEqual([342900, false, 50000, 4, 342900])
+  })
+
+  it('adds and removes housing, recalculated on the server', async () => {
+    const path = `/api/me/tuition-accounts/${accountId}/housing`
+    expect((await call('token-other', 'PATCH', path, { housingSelected: true, tuitionCents: 1 })).status).toBe(400)
+    const added = await call('token-other', 'PATCH', path, { housingSelected: true })
+    expect(added.status).toBe(200)
+    expect((await added.json()).account).toMatchObject({ tuition_cents: 392900, housing_selected: true })
+    expect((await call('token-other', 'PATCH', path, { housingSelected: false })).status).toBe(200)
+    expect((await account()).tuition_cents).toBe(342900)
+  })
+
+  it('keeps the choice when the student returns to the checkout', async () => {
+    await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })
+    const billing = await (await call('token-other', 'GET', '/api/me/billing')).json()
+    expect(billing.accounts[0]).toMatchObject({ id: accountId, housing_selected: true, remaining_cents: 392900 })
+    // Reopening for the same course applies the choice sent with it.
+    const reopened = await call('token-other', 'POST', '/api/me/tuition-accounts', { courseId, housingSelected: false })
+    expect((await reopened.json()).tuitionAccountId).toBe(accountId)
+    expect((await account()).tuition_cents).toBe(342900)
+  })
+
+  it("refuses another student's account", async () => {
+    expect((await call('token-student', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })).status).toBe(404)
+    expect((await account()).housing_selected).toBe(false)
+  })
+
+  it('cancels an unpaid checkout priced for the old choice', async () => {
+    const { data: pending } = await db.from('cdl_payments').insert({
+      amount_cents: 342900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId, metadata: { expected_amount: 342900 },
+    }).select('id').single()
+    expect((await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: true })).status).toBe(200)
+    expect((await payment(pending!.id)).status).toBe('canceled')
+    expect((await account()).tuition_cents).toBe(392900)
+  })
+
+  it('leaves existing accounts and their price untouched when the price changes', async () => {
+    const { data: before } = await db.from('cdl_courses').select('pricing_version').eq('id', courseId).single()
+    await db.from('cdl_courses').update({ training_cents: 279900 }).eq('id', courseId)
+    const { data: course } = await db.from('cdl_courses').select('tuition_cents, pricing_version').eq('id', courseId).single()
+    expect(course).toEqual({ tuition_cents: 362900, pricing_version: before!.pricing_version + 1 })
+    const { data: history } = await db.from('cdl_course_pricing_versions').select('version, tuition_cents').eq('course_id', courseId).order('version')
+    expect(history!.at(-1)).toEqual({ version: before!.pricing_version + 1, tuition_cents: 362900 })
+    const row = await account()
+    expect([row.tuition_cents, row.fee_items[0].amount_cents]).toEqual([392900, 259900])
+    await db.from('cdl_courses').update({ training_cents: 259900 }).eq('id', courseId)
+  })
+
+  it('lets only the super administrator change course prices', async () => {
+    const res = await call('token-admin', 'PATCH', `/api/admin/courses/${courseId}/pricing`, { trainingCents: 1, testingFeeCents: 0, administrativeFeeCents: 0, materialsFeeCents: 0, housingFeeCents: 0, depositCents: 0, installmentCount: 1 })
+    expect(res.status).toBe(403)
+  })
+
+  it('does not mark the account paid when the payment fails', async () => {
+    const { data: pending } = await db.from('cdl_payments').insert({
+      amount_cents: 392900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId,
+      stripe_checkout_session_id: `cs_test_failed_${accountId.slice(0, 8)}`, metadata: { expected_amount: 392900 },
+    }).select('id').single()
+    await deliver('checkout.session.async_payment_failed', { id: `cs_test_failed_${accountId.slice(0, 8)}`, object: 'checkout.session', status: 'complete', payment_status: 'unpaid', amount_total: 392900, currency: 'usd', metadata: { payment_id: pending!.id, payment_type: 'tuition', tuition_account_id: accountId } })
+    expect((await payment(pending!.id)).status).toBe('failed')
+    const row = await account()
+    expect([row.paid_cents, row.remaining_cents, row.status]).toEqual([0, 392900, 'OPEN'])
+  })
+
+  it('records the full payment with housing and then locks the housing choice', async () => {
+    const id = randomUUID()
+    const session = `cs_test_${id.replace(/-/g, '')}`
+    await db.from('cdl_payments').insert({
+      id, amount_cents: 392900, currency: 'usd', status: 'pending', payment_type: 'tuition', payment_kind: 'full', tuition_account_id: accountId,
+      stripe_checkout_session_id: session, metadata: { expected_amount: 392900 },
+    })
+    await deliver('checkout.session.completed', { id: session, object: 'checkout.session', status: 'complete', payment_status: 'paid', amount_total: 392900, currency: 'usd', payment_intent: `pi_${id.slice(0, 8)}`, metadata: { payment_id: id, payment_type: 'tuition', tuition_account_id: accountId } })
+    const row = await account()
+    expect([row.paid_cents, row.remaining_cents, row.status]).toEqual([392900, 0, 'PAID'])
+    const locked = await call('token-other', 'PATCH', `/api/me/tuition-accounts/${accountId}/housing`, { housingSelected: false })
+    expect(locked.status).toBe(409)
+    expect((await account()).tuition_cents).toBe(392900)
+    const receipt = await call('token-other', 'GET', `/api/payments/${id}/receipt`)
+    expect([receipt.status, receipt.headers.get('content-type')]).toEqual([200, 'application/pdf'])
+  })
+})
+
+describe('identity verification', () => {
+  const NEW = USERS['token-new'].id
+  let studentId = ''
+  let courseId = ''
+  const latest = async () => (await db.from('cdl_identity_verifications').select('*').eq('user_id', NEW).order('created_at', { ascending: false }).limit(1).single()).data
+  const pending = async (sessionId: string, documentType = 'DRIVING_LICENSE') => {
+    const { data, error } = await db.from('cdl_identity_verifications').insert({
+      user_id: NEW, student_id: studentId, document_type: documentType, provider_session_id: sessionId, provider_status: 'requires_input',
+      consent_version: 'identity-v1-2026-10', consent_at: new Date().toISOString(),
+    }).select().single()
+    if (error) throw error
+    return data
+  }
+  const session = (id: string, status: string, extra: Record<string, unknown> = {}) => ({ id, object: 'identity.verification_session', status, last_error: null, ...extra })
+
+  beforeAll(async () => {
+    studentId = (await db.from('cdl_students').select('id').eq('user_id', NEW).single()).data!.id
+    courseId = (await db.from('cdl_courses').select('id').eq('code', 'CDL-B').single()).data!.id
+  })
+
+  it('starts unverified without blocking payments', async () => {
+    expect(await (await call('token-new', 'GET', '/api/me/identity')).json()).toMatchObject({ status: 'NOT_STARTED', canStart: true })
+    // Identity gates application submission (database trigger), not payments.
+    expect((await call('token-new', 'POST', '/api/me/tuition-accounts', { courseId })).status).toBe(201)
+  })
+
+  it('requires consent before starting', async () => {
+    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD' })).status).toBe(400)
+    expect((await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'PASSPORT', biometricConsent: true, consentVersion: 'identity-v2-2026-10' })).status).toBe(400)
+  })
+
+  it('records a mismatched face as failed, once, and lets the student retake', async () => {
+    await pending('vs_test_face')
+    const eventId = `evt_${randomUUID()}`
+    const failed = session('vs_test_face', 'requires_input', { last_error: { code: 'selfie_face_mismatch', reason: 'mismatch' } })
+    expect((await deliver('identity.verification_session.requires_input', failed, eventId)).status).toBe(200)
+    const row = await latest()
+    expect([row.status, row.failure_code]).toEqual(['FAILED', 'selfie_face_mismatch'])
+    expect(row.failure_reason).toMatch(/did not match/)
+    expect((await deliver('identity.verification_session.requires_input', failed, eventId)).body).toEqual({ received: true, duplicate: true })
+    const { count } = await db.from('cdl_identity_events').select('id', { count: 'exact', head: true }).eq('verification_id', row.id)
+    expect(count).toBe(2) // started, failed
+    expect(await (await call('token-new', 'GET', '/api/me/identity')).json()).toMatchObject({ status: 'FAILED', canStart: true })
+  })
+
+  it('sends a manipulated selfie (failed liveness) to manual review and stops new attempts', async () => {
+    await pending('vs_test_spoof', 'GREEN_CARD')
+    await deliver('identity.verification_session.requires_input', session('vs_test_spoof', 'requires_input', { last_error: { code: 'selfie_manipulated' } }))
+    expect((await latest()).status).toBe('MANUAL_REVIEW')
+    const res = await call('token-new', 'POST', '/api/me/identity/sessions', { documentType: 'GREEN_CARD', biometricConsent: true, consentVersion: 'identity-v2-2026-10' })
+    expect(res.status).toBe(409)
+  })
+
+  it('lets only admins review, and records the decision', async () => {
+    const row = await latest()
+    const path = `/api/admin/identity-verifications/${row.id}/decision`
+    expect((await call('token-new', 'POST', path, { action: 'APPROVE', reason: 'self approval' })).status).toBe(403)
+    expect((await call('token-new', 'GET', '/api/admin/identity-verifications')).status).toBe(403)
+    expect((await call('token-admin', 'POST', path, { action: 'REQUEST_RESUBMISSION', reason: 'Glare on the card' })).status).toBe(200)
+    const after = await latest()
+    expect([after.status, after.failure_code, after.decided_by]).toEqual(['FAILED', 'resubmission_requested', USERS['token-admin'].id])
+    expect(after.failure_reason).toMatch(/Glare on the card/)
+  })
+
+  it('shows stored ID images only to the super administrator', async () => {
+    const row = await latest()
+    for (const token of ['token-admin', 'token-new']) {
+      expect((await call(token, 'GET', `/api/admin/identity-verifications/${row.id}/evidence`)).status).toBe(403)
+      expect((await call(token, 'GET', `/api/admin/identity-verifications/${row.id}/evidence/selfie`)).status).toBe(403)
+    }
+  })
+
+  it('never lets a late provider result overwrite a staff decision', async () => {
+    const before = await latest()
+    await deliver('identity.verification_session.verified', session('vs_test_spoof', 'verified', { last_verification_report: { document: { first_name: 'Nia', last_name: 'Newman', type: 'id_card' } } }))
+    expect((await latest()).status).toBe(before.status)
+  })
+
+  it('offers in-person verification without biometrics, approved by an admin', async () => {
+    const res = await call('token-new', 'POST', '/api/me/identity/alternative', { documentType: 'GREEN_CARD', reason: 'No camera' })
+    expect(res.status).toBe(201)
+    const row = await latest()
+    expect([row.method, row.status, row.provider_session_id]).toEqual(['ALTERNATIVE', 'MANUAL_REVIEW', null])
+    expect((await call('token-admin', 'POST', `/api/admin/identity-verifications/${row.id}/decision`, { action: 'APPROVE', reason: 'Checked Green Card at the front desk' })).status).toBe(200)
+    expect((await latest()).status).toBe('VERIFIED')
+    const events = (await (await call('token-admin', 'GET', `/api/admin/identity-verifications/${row.id}/events`)).json()).events
+    expect(events.map((event: { action: string }) => event.action)).toEqual(['ALTERNATIVE_REQUESTED', 'APPROVED'])
+    expect(events[1].detail).toMatch(/front desk/)
+  })
+
+  it('sends a provider-verified document with another name to manual review', async () => {
+    // A different student whose document shows someone else's name.
+    const { data: other } = await db.from('cdl_students').select('id').eq('user_id', USERS['token-student'].id).single()
+    const { data: row } = await db.from('cdl_identity_verifications').insert({
+      user_id: USERS['token-student'].id, student_id: other!.id, document_type: 'DRIVING_LICENSE', provider_session_id: 'vs_test_name',
+      consent_version: 'identity-v1-2026-10', consent_at: new Date().toISOString(),
+    }).select().single()
+    await deliver('identity.verification_session.verified', session('vs_test_name', 'verified', { last_verification_report: { document: { first_name: 'Someone', last_name: 'Else', type: 'driving_license', issuing_country: 'US', expiration_date: { day: 1, month: 2, year: 2030 } } } }))
+    const { data: after } = await db.from('cdl_identity_verifications').select('*').eq('id', row!.id).single()
+    expect([after!.status, after!.failure_code, after!.name_matches, after!.document_expires_on]).toEqual(['MANUAL_REVIEW', 'name_mismatch', false, '2030-02-01'])
   })
 })

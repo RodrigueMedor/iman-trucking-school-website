@@ -21,3 +21,13 @@ values
    'other@test.local', '{"first_name":"Tom","last_name":"Baker"}', '{}', now(), now(), now()),
   ('50000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'admin@test.local', '{"full_name":"Ada Admin"}', '{"role":"admin"}', now(), now(), now());
+
+-- Identity: the two students above are verified; a third student has not
+-- verified yet.
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, created_at, updated_at)
+values ('50000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+        'new@test.local', '{"first_name":"Nia","last_name":"Newman"}', '{}', now(), now(), now());
+
+insert into public.cdl_identity_verifications (user_id, student_id, document_type, status, consent_version, consent_at, decided_at)
+select s.user_id, s.id, 'DRIVING_LICENSE', 'VERIFIED', 'test', now(), now() from public.cdl_students s
+where s.user_id in ('50000000-0000-0000-0000-0000000000a1', '50000000-0000-0000-0000-0000000000b2');

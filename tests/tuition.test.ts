@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { installmentSchedule, pendingCheckoutAction, tuitionBalance, tuitionPaymentAmount } from '../shared/tuition.mjs'
+import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionBalance, tuitionPaymentAmount } from '../shared/tuition.mjs'
 
 describe('tuition ledger', () => {
   it('subtracts successful payments and funded financing', () => {
@@ -45,4 +45,42 @@ describe('installment schedule', () => {
   })
   it('labels each installment', () => expect(installmentSchedule({ tuitionCents: 2000, installmentCount: 2 })[1]).toEqual({ installment_no: 2, label: 'Installment 2 of 2', amount_cents: 1000 }))
   it('is empty for a single payment', () => expect(installmentSchedule({ tuitionCents: 500000, installmentCount: 1 })).toEqual([]))
+})
+
+describe('CDL Training special pricing', () => {
+  const course = { training_cents: 259900, testing_fee_cents: 60000, administrative_fee_cents: 8000, materials_fee_cents: 15000, housing_fee_cents: 50000, currency: 'usd', pricing_version: 3 }
+
+  it('itemizes the fees and totals them without housing', () => {
+    const pricing = coursePricing(course)
+    expect(pricing.items).toEqual([
+      { code: 'training', label: 'CDL Training - Sale Price', amount_cents: 259900 },
+      { code: 'testing', label: 'Testing Fee', amount_cents: 60000 },
+      { code: 'administrative', label: 'Administrative Fee', amount_cents: 8000 },
+      { code: 'materials', label: 'Materials Fee', amount_cents: 15000 },
+    ])
+    expect(pricing).toMatchObject({ currency: 'usd', version: 3, housingFeeCents: 50000, totalWithoutHousingCents: 342900, totalWithHousingCents: 392900 })
+  })
+  it('adds housing only when it is selected', () => {
+    const { items, housingFeeCents } = coursePricing(course)
+    expect(pricingTotal(items, housingFeeCents, false)).toBe(342900)
+    expect(pricingTotal(items, housingFeeCents, true)).toBe(392900)
+    expect(pricingTotal(items, housingFeeCents, false)).toBe(342900) // removing housing returns to the base total
+  })
+  it('ignores a housing choice when housing is not offered', () => {
+    const { items } = coursePricing({ ...course, housing_fee_cents: 0 })
+    expect(pricingTotal(items, 0, true)).toBe(342900)
+  })
+  it('follows a later price change without touching an earlier snapshot', () => {
+    const before = coursePricing(course)
+    const after = coursePricing({ ...course, training_cents: 279900 })
+    expect(after.totalWithoutHousingCents).toBe(362900)
+    expect(pricingTotal(before.items, before.housingFeeCents, true)).toBe(392900)
+  })
+  it('lists only charged fees and treats an unitemized course as its training price', () => {
+    expect(coursePricing({ training_cents: 500000 }).items).toEqual([{ code: 'training', label: 'CDL Training - Sale Price', amount_cents: 500000 }])
+  })
+  it('rejects fractional or negative cents', () => {
+    expect(() => coursePricing({ ...course, testing_fee_cents: 600.5 })).toThrow()
+    expect(() => pricingTotal([{ code: 'x', label: 'X', amount_cents: -1 }], 0, false)).toThrow()
+  })
 })

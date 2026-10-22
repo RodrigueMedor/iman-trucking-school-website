@@ -43,6 +43,12 @@ do $$ begin
     'app_metadata role is honoured';
 end $$;
 
+-- Students A and B have verified identities, so they may submit applications
+-- (identity gating itself is tested in identity_rls.sql).
+insert into public.cdl_identity_verifications (user_id, student_id, document_type, status, consent_version, consent_at)
+select s.user_id, s.id, 'DRIVING_LICENSE', 'VERIFIED', 'test', now() from public.cdl_students s
+where s.user_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b2');
+
 -- Unverified public signups remain inactive and user metadata still cannot
 -- elevate the role. Confirming the email activates only the student account.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, created_at, updated_at)

@@ -202,8 +202,23 @@ server or an API host for payments.
 ### Tuition billing and Liberty financing
 
 Apply these migrations, in order, before deploying this version:
-`202610210001_tuition_billing.sql`, then `202610220001_tuition_billing_hardening.sql`.
-Both are additive; existing students, applications and payments are preserved.
+`202610210001_tuition_billing.sql`, then `202610220001_tuition_billing_hardening.sql`,
+then `202610240001_cdl_fee_breakdown.sql`. All are additive; existing students,
+applications, payments and tuition accounts are preserved.
+
+**CDL Training pricing.** Each course is priced from itemized fees (training
+sale price, testing, administrative, materials) plus optional housing. The
+`202610240001` migration sets CDL Class A and Class B to $2,599 + $600 + $80 +
+$150 = **$3,429**, or **$3,929** with the optional $500 housing, full payment
+only. The course total is always the sum of the fees (database trigger), and
+every price change gets a new version in `cdl_course_pricing_versions` with
+who made it. The super admin edits fees under **Admin → Course pricing**
+(Edit / History). A tuition account snapshots the fees, the housing price and
+the student's housing choice when it is opened, so later price changes never
+alter it. Students add or remove housing on the billing page until a payment,
+funded financing or waiver is applied (`PATCH /api/me/tuition-accounts/:id/housing`);
+an unpaid open checkout for the old amount is expired first. After that,
+admissions makes the change.
 
 **Tuition accounts (admins).** Admissions creates a tuition account for an
 approved training application under **Admin → Tuition accounts**. Amounts are
@@ -218,9 +233,11 @@ From there an admin can:
   the Stripe Dashboard instead; the refund is applied automatically);
 - waive a due installment, with a reason kept in the audit record.
 
-**Students.** **Portal → Tuition & Payments** offers two choices side by side:
-*Pay with Stripe* (full remaining balance, the deposit, or a due installment)
-or *Apply for financing* through Liberty Career Finance. Students download
+**Students.** **Portal → Tuition & Payments** shows the CDL Training fee
+breakdown, the housing option and *Your total due* (the remaining balance, or
+the next installment on an installment plan), with *Pay with Stripe* (full
+remaining balance, the deposit, or a due installment) and *Apply for
+financing* through Liberty Career Finance. Students download
 receipts and their signed agreements as PDFs, and the dashboard shows the
 remaining balance.
 

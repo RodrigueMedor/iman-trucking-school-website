@@ -22,6 +22,7 @@ import { CDLInstructorDashboard } from './pages/admin/CDLInstructorDashboard'
 import { FinancingReferrals } from './pages/admin/FinancingReferrals'
 import { CoursePricing } from './pages/admin/CoursePricing'
 import { TuitionAccounts } from './pages/admin/TuitionAccounts'
+import { IdentityVerifications } from './pages/admin/IdentityVerifications'
 import { PortalAuth } from './portal/PortalAuth'
 import { RequireStudent } from './portal/RequireStudent'
 import { PortalLayout } from './portal/PortalLayout'
@@ -35,6 +36,7 @@ import { SchedulePage } from './portal/pages/SchedulePage'
 import { ProfilePage } from './portal/pages/ProfilePage'
 import { AssessmentTest } from './portal/pages/AssessmentTest'
 import { BillingPage } from './portal/pages/BillingPage'
+import { IdentityPage } from './portal/pages/IdentityPage'
 
 function ScrollManager() {
   const { pathname } = useLocation()
@@ -68,6 +70,7 @@ export function App() {
               <Route path="course-pricing/" element={<CoursePricing />} />
             </Route>
             <Route path="tuition-accounts/" element={<TuitionAccounts />} />
+            <Route path="identity-verifications/" element={<IdentityVerifications />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
@@ -90,6 +93,7 @@ export function App() {
             <Route path="applications/:id/confirmation" element={<Confirmation />} />
             <Route path="documents/" element={<DocumentsPage />} />
             <Route path="billing/" element={<BillingPage />} />
+            <Route path="identity" element={<IdentityPage />} />
             <Route path="schedule/" element={<SchedulePage />} />
             <Route path="profile/" element={<ProfilePage />} />
             <Route path="assessment/test/:applicationId" element={<AssessmentTest />} />

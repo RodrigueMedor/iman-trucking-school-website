@@ -3,6 +3,8 @@
 // only reads a finished checkout's status, which also lets the API reconcile
 // the payment when the Stripe webhook is delayed.
 
+import { getApiUrl } from './api'
+
 export type PaymentStatusResponse = {
   status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'refunded'
   payment_type?: string
@@ -11,7 +13,7 @@ export type PaymentStatusResponse = {
 }
 
 export async function getPaymentStatus(sessionId: string): Promise<PaymentStatusResponse> {
-  const response = await fetch(`/api/payment-status/${encodeURIComponent(sessionId)}`)
+  const response = await fetch(getApiUrl(`/api/payment-status/${encodeURIComponent(sessionId)}`))
   if (!response.ok) throw new Error('Failed to fetch payment status')
   return response.json()
 }

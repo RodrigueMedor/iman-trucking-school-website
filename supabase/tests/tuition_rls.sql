@@ -185,5 +185,59 @@ do $$ begin
     'the balance is due again';
 end $$;
 
+-- ------------------------------------------------ itemized pricing
+do $$
+declare c public.cdl_courses;
+begin
+  select * into c from public.cdl_courses where code = 'CDL-A';
+  assert c.tuition_cents = 342900 and c.housing_fee_cents = 50000, 'CDL Class A is $3,429 plus optional $500 housing';
+  assert (select tuition_cents from public.cdl_courses where code = 'CDL-B') = 342900, 'CDL Class B is $3,429';
+  assert exists (select 1 from public.cdl_course_pricing_versions where course_id = c.id and version = c.pricing_version and tuition_cents = 342900),
+    'the current price is in the pricing history';
+end $$;
+
+update public.cdl_courses set testing_fee_cents = 65000, tuition_cents = 1 where code = 'CDL-A';
+do $$
+declare c public.cdl_courses;
+begin
+  select * into c from public.cdl_courses where code = 'CDL-A';
+  assert c.tuition_cents = 347900, 'the total is always the sum of the fees';
+  assert (select count(*) from public.cdl_course_pricing_versions where course_id = c.id and version = c.pricing_version) = 1,
+    'a price change is recorded as a new version';
+end $$;
+update public.cdl_courses set name = name where code = 'CDL-A';
+do $$ begin
+  assert (select count(*) from public.cdl_course_pricing_versions h join public.cdl_courses c on c.id = h.course_id where c.code = 'CDL-A')
+    = (select pricing_version from public.cdl_courses where code = 'CDL-A'), 'edits that do not touch prices add no version';
+end $$;
+
+do $$ begin
+  insert into public.cdl_tuition_accounts (user_id, student_id, tuition_cents, housing_selected, housing_fee_cents)
+  select '10000000-0000-0000-0000-0000000000b2', id, 1000, true, 0 from public.cdl_students where user_id = '10000000-0000-0000-0000-0000000000b2';
+  raise exception 'housing without a housing price was accepted';
+exception when check_violation then null;
+end $$;
+
+-- Students cannot see the pricing history or change their own total.
+select tt.act_as('10000000-0000-0000-0000-0000000000a1');
+do $$ begin
+  assert (select count(*) from public.cdl_course_pricing_versions) = 0, 'students cannot read the pricing history';
+  update public.cdl_tuition_accounts set housing_selected = false, tuition_cents = 1 where user_id = auth.uid();
+  assert not found, 'students cannot change their tuition or housing directly';
+end $$;
+select tt.reset();
+select tt.act_as('10000000-0000-0000-0000-0000000000c3');
+do $$ begin
+  assert (select count(*) from public.cdl_course_pricing_versions) > 0, 'staff can read the pricing history';
+  begin
+    insert into public.cdl_course_pricing_versions (course_id, version, currency, training_cents, testing_fee_cents, administrative_fee_cents,
+      materials_fee_cents, housing_fee_cents, tuition_cents, deposit_cents, installment_count, effective_at)
+    select id, 999, 'usd', 0, 0, 0, 0, 0, 0, 0, 1, now() from public.cdl_courses limit 1;
+    raise exception 'the pricing history accepted a direct write';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+select tt.reset();
+
 \echo 'ALL TUITION TESTS PASSED'
 rollback;

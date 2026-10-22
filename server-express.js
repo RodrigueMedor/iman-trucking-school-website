@@ -10,7 +10,9 @@ import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
 import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptText } from './shared/admissionsChat.mjs'
-import { installmentSchedule, pendingCheckoutAction, tuitionPaymentAmount } from './shared/tuition.mjs'
+import { decryptBytes, decryptText, encryptBytes, encryptText, EVIDENCE_RETENTION_DAYS, evidenceDue, identityKey } from './shared/identityCrypto.mjs'
+import { DOCUMENT_TYPES, IDENTITY_CONSENT_VERSION, REDACT_AFTER_DAYS, dueForRedaction, studentReason, verificationOutcome } from './shared/identity.mjs'
+import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionPaymentAmount } from './shared/tuition.mjs'
 
 dotenv.config()
 
@@ -25,6 +27,22 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 const stripe = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: '2024-11-20.acacia' })
   : null
+
+// Identity verification may use its own key, ideally a restricted key with
+// only Identity permissions, so it can run in live mode while payments stay
+// in test mode on staging. Falls back to the main key.
+const identityStripeKey = process.env.STRIPE_IDENTITY_SECRET_KEY || stripeSecretKey || ''
+const identityStripe = process.env.STRIPE_IDENTITY_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_IDENTITY_SECRET_KEY, { apiVersion: '2024-11-20.acacia' })
+  : stripe
+
+// Where staff view a verification's document and selfie images. They stay
+// in Stripe; admissions opens them with their own Stripe team login.
+function identityDashboardUrl(sessionId) {
+  if (!sessionId) return null
+  const mode = /^(sk|rk)_live_/.test(identityStripeKey) ? '' : 'test/'
+  return `https://dashboard.stripe.com/${mode}identity/verification-sessions/${encodeURIComponent(sessionId)}`
+}
 
 // The API server uses the service-role key to verify student sessions and to
 // write payment records and ELP results. The service-role key (and
@@ -427,6 +445,9 @@ app.get('/api/me/billing', requireUser, requireStudent, async (req, res) => {
   }
 })
 
+// Course columns the itemized price is computed from (see coursePricing).
+const COURSE_PRICE_COLUMNS = 'tuition_cents, deposit_cents, installment_count, installments_enabled, training_cents, testing_fee_cents, administrative_fee_cents, materials_fee_cents, housing_fee_cents, currency, pricing_version'
+
 // Training applications a self-paid tuition account can be linked to.
 // Drafts and rejections are excluded.
 const SELF_PAY_APPLICATION_STATUSES = ['SUBMITTED', 'UNDER_REVIEW', 'INFO_REQUIRED', 'APPROVED', 'SCHEDULED']
@@ -437,14 +458,17 @@ const SELF_PAY_APPLICATION_STATUSES = ['SUBMITTED', 'UNDER_REVIEW', 'INFO_REQUIR
 async function selfPayOptions(userId, accounts) {
   if (accounts.some(row => row.status !== 'CLOSED')) return []
   const [{ data: courses }, { data: applications }] = await Promise.all([
-    supabase.from('cdl_courses').select('id, name, code, tuition_cents, deposit_cents, installment_count, installments_enabled').eq('active', true).gt('tuition_cents', 0).order('name'),
+    supabase.from('cdl_courses').select(`id, name, code, ${COURSE_PRICE_COLUMNS}`).eq('active', true).gt('tuition_cents', 0).order('name'),
     supabase.from('cdl_class_applications').select('id, reference_no, course_id').eq('user_id', userId)
       .eq('application_type', 'TRAINING').in('status', SELF_PAY_APPLICATION_STATUSES).order('created_at', { ascending: false }),
   ])
   return (courses || []).map(course => {
     const application = (applications || []).find(row => row.course_id === course.id)
-    const { id, ...details } = course
-    return { courseId: id, course: details, application: application ? { id: application.id, reference_no: application.reference_no } : null }
+    const { id, name, code, tuition_cents, deposit_cents, installment_count, installments_enabled } = course
+    return {
+      courseId: id, course: { name, code, tuition_cents, deposit_cents, installment_count, installments_enabled }, pricing: coursePricing(course),
+      application: application ? { id: application.id, reference_no: application.reference_no } : null,
+    }
   })
 }
 
@@ -463,10 +487,10 @@ app.post('/api/me/tuition-accounts', studentOnly, async (req, res) => {
   try {
     const unavailable = requireClients(res)
     if (unavailable) return res.status(503).json(unavailable)
-    const parsed = z.object({ courseId: uuidSchema }).strict().safeParse(req.body)
+    const parsed = z.object({ courseId: uuidSchema, housingSelected: z.boolean().optional() }).strict().safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: 'Choose a course to pay for.' })
     const { data: course } = await supabase.from('cdl_courses')
-      .select('id, active, tuition_cents, deposit_cents, installment_count, installments_enabled').eq('id', parsed.data.courseId).maybeSingle()
+      .select(`id, active, ${COURSE_PRICE_COLUMNS}`).eq('id', parsed.data.courseId).maybeSingle()
     if (!course?.active) return res.status(404).json({ error: 'Course not found.' })
     if (!course.tuition_cents) return res.status(409).json({ error: 'Tuition for this course is not set yet. Contact admissions to pay.' })
     const { data: student } = await supabase.from('cdl_students').select('id').eq('user_id', req.user.id).maybeSingle()
@@ -474,19 +498,32 @@ app.post('/api/me/tuition-accounts', studentOnly, async (req, res) => {
 
     const { data: open } = await supabase.from('cdl_tuition_accounts').select('id, course_id').eq('user_id', req.user.id).neq('status', 'CLOSED')
     const existing = (open || []).find(row => row.course_id === course.id)
-    if (existing) return res.json({ tuitionAccountId: existing.id })
+    if (existing) {
+      // Returning to an unfinished checkout: apply a changed housing choice.
+      if (parsed.data.housingSelected !== undefined) {
+        const failure = await changeHousing(existing.id, req.user.id, parsed.data.housingSelected)
+        if (failure) return res.status(failure.status).json({ error: failure.error })
+      }
+      return res.json({ tuitionAccountId: existing.id })
+    }
     if (open?.length) return res.status(409).json({ error: 'You already have a tuition account. Contact admissions to change your course.' })
 
     const { data: linkable } = await supabase.from('cdl_class_applications').select('id').eq('user_id', req.user.id)
       .eq('application_type', 'TRAINING').eq('course_id', course.id).in('status', SELF_PAY_APPLICATION_STATUSES)
       .order('created_at', { ascending: false }).limit(1)
-    const depositCents = Math.min(course.deposit_cents || 0, course.tuition_cents)
+    // Priced on the server from the current course fees; the browser only
+    // says whether housing is wanted.
+    const pricing = coursePricing(course)
+    const housingSelected = Boolean(parsed.data.housingSelected) && pricing.housingFeeCents > 0
+    const tuitionCents = pricingTotal(pricing.items, pricing.housingFeeCents, housingSelected)
+    const depositCents = Math.min(course.deposit_cents || 0, tuitionCents)
     const installmentCount = course.installments_enabled ? course.installment_count : 1
     // The database links any existing Liberty referral to the new account.
     const { data: account, error } = await supabase.from('cdl_tuition_accounts').insert({
       user_id: req.user.id, student_id: student.id, application_id: linkable?.[0]?.id || null, course_id: course.id,
-      tuition_cents: course.tuition_cents, deposit_cents: depositCents, installment_count: installmentCount,
-      installments_enabled: installmentCount > 1, created_by: req.user.id, updated_by: req.user.id,
+      tuition_cents: tuitionCents, deposit_cents: depositCents, installment_count: installmentCount,
+      installments_enabled: installmentCount > 1, created_by: req.user.id, updated_by: req.user.id, currency: pricing.currency,
+      fee_items: pricing.items, housing_fee_cents: pricing.housingFeeCents, housing_selected: housingSelected, pricing_version: pricing.version,
     }).select('id').single()
     if (error) {
       // A concurrent request opened it first (unique indexes on application and self-paid course).
@@ -496,7 +533,7 @@ app.post('/api/me/tuition-accounts', studentOnly, async (req, res) => {
       }
       throw error
     }
-    const installments = installmentSchedule({ tuitionCents: course.tuition_cents, depositCents, installmentCount })
+    const installments = installmentSchedule({ tuitionCents, depositCents, installmentCount })
       .map(item => ({ ...item, tuition_account_id: account.id }))
     if (installments.length) {
       const { error: scheduleError } = await supabase.from('cdl_tuition_installments').insert(installments)
@@ -506,6 +543,63 @@ app.post('/api/me/tuition-accounts', studentOnly, async (req, res) => {
   } catch (error) {
     console.error('Error opening tuition account:', error)
     res.status(500).json({ error: 'Could not start your tuition payment. Please try again.' })
+  }
+})
+
+// Adds or removes optional housing on the student's own account. Allowed
+// only until money has been applied (payment, financing or waiver); after
+// that admissions makes the change. Returns { status, error } on refusal.
+async function changeHousing(accountId, userId, housingSelected) {
+  const { data: account } = await supabase.from('cdl_tuition_account_balances').select('*')
+    .eq('id', accountId).eq('user_id', userId).maybeSingle()
+  if (!account || account.status === 'CLOSED') return { status: 404, error: 'Tuition account not found.' }
+  if (account.housing_selected === housingSelected) return null
+  if (!account.housing_fee_cents || !account.fee_items?.length) return { status: 409, error: 'Housing is not offered on your tuition account. Contact admissions.' }
+  const { count: settled } = await supabase.from('cdl_payments').select('id', { count: 'exact', head: true })
+    .eq('tuition_account_id', account.id).in('status', ['succeeded', 'refunded'])
+  if (settled || account.financing_cents || account.waived_cents) {
+    return { status: 409, error: 'A payment has already been applied to your tuition. Contact admissions to change housing.' }
+  }
+  // An open checkout was priced for the old choice; it is expired first.
+  const blocked = await releaseTuitionCheckout(account.id)
+  if (blocked) return { status: 409, error: 'Your previous tuition payment is still being processed. Refresh in a moment to see your balance.' }
+
+  const tuitionCents = pricingTotal(account.fee_items, account.housing_fee_cents, housingSelected)
+  const depositCents = Math.min(account.deposit_cents, tuitionCents)
+  const { data: updated, error } = await supabase.from('cdl_tuition_accounts').update({
+    housing_selected: housingSelected, tuition_cents: tuitionCents, deposit_cents: depositCents, updated_by: userId, updated_at: new Date().toISOString(),
+  }).eq('id', account.id).eq('housing_selected', !housingSelected).select('id')
+  if (error) throw error
+  if (!updated?.length) return null // a concurrent request already applied it
+
+  // Nothing was paid, so an installment schedule is rebuilt for the new total.
+  if (account.installments_enabled) {
+    await supabase.from('cdl_tuition_installments').delete().eq('tuition_account_id', account.id)
+    const installments = installmentSchedule({ tuitionCents, depositCents, installmentCount: account.installment_count })
+      .map(item => ({ ...item, tuition_account_id: account.id }))
+    if (installments.length) {
+      const { error: scheduleError } = await supabase.from('cdl_tuition_installments').insert(installments)
+      if (scheduleError) console.error('Could not rebuild the installment schedule after a housing change:', scheduleError)
+    }
+  }
+  return null
+}
+
+app.patch('/api/me/tuition-accounts/:id/housing', studentOnly, async (req, res) => {
+  try {
+    const unavailable = requireClients(res)
+    if (unavailable) return res.status(503).json(unavailable)
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid tuition account.' })
+    const parsed = z.object({ housingSelected: z.boolean() }).strict().safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose whether to add housing.' })
+    const failure = await changeHousing(req.params.id, req.user.id, parsed.data.housingSelected)
+    if (failure) return res.status(failure.status).json({ error: failure.error })
+    const { data: account } = await supabase.from('cdl_tuition_account_balances')
+      .select('id, tuition_cents, remaining_cents, housing_selected, housing_fee_cents').eq('id', req.params.id).single()
+    res.json({ account })
+  } catch (error) {
+    console.error('Error changing housing:', error)
+    res.status(500).json({ error: 'Could not update your housing choice. Please try again.' })
   }
 })
 
@@ -603,6 +697,8 @@ app.post('/api/create-tuition-checkout', studentOnly, async (req, res) => {
       customer_email: student.email || req.user.email, agreement_id: agreement.id,
       metadata: { firstName: student.first_name, lastName: student.last_name, tuitionAccountId: account.id,
         installmentId: installment?.id || null, courseName: account.course?.name || 'CDL Training', expected_amount: amountCents,
+        fee_items: account.fee_items || [], housing_selected: account.housing_selected, housing_fee_cents: account.housing_fee_cents,
+        pricing_version: account.pricing_version, tuition_cents: account.tuition_cents,
         payment_policy_version: TUITION_AGREEMENT_VERSION, payment_policy_signature: input.paymentPolicySignature.trim(), payment_policy_accepted_at: acceptedAt },
     }).select().single()
     if (paymentError) {
@@ -617,12 +713,16 @@ app.post('/api/create-tuition-checkout', studentOnly, async (req, res) => {
     try {
       session = await stripe.checkout.sessions.create({
         mode: 'payment', payment_method_types: ['card'], customer_email: student.email || req.user.email,
-        line_items: [{ price_data: { currency: account.currency, product_data: { name: label, description: `${account.course?.name || 'CDL Training'} — Iman Trucking School` }, unit_amount: amountCents }, quantity: 1 }],
+        line_items: [{ price_data: { currency: account.currency, product_data: { name: label, description: tuitionDescription(account) }, unit_amount: amountCents }, quantity: 1 }],
         custom_text: stripePolicyCustomText(),
         // Abandoned checkouts release the account quickly (Stripe minimum is 30 minutes).
         expires_at: Math.floor(Date.now() / 1000) + TUITION_CHECKOUT_TTL_SECONDS,
         success_url: checkoutReturnUrl(req, '/portal/billing/', 'success'), cancel_url: checkoutReturnUrl(req, '/portal/billing/', 'canceled'),
-        metadata: { payment_id: payment.id, student_id: student.id, tuition_account_id: account.id, installment_id: installment?.id || '', payment_type: 'tuition', expected_amount: String(amountCents), agreement_id: agreement.id },
+        metadata: {
+          payment_id: payment.id, student_id: student.id, tuition_account_id: account.id, installment_id: installment?.id || '', payment_type: 'tuition',
+          expected_amount: String(amountCents), agreement_id: agreement.id, enrollment_id: account.application_id || '', program_id: account.course_id || '',
+          housing_selected: String(Boolean(account.housing_selected)), pricing_version: String(account.pricing_version || ''),
+        },
         payment_intent_data: { metadata: { payment_id: payment.id, payment_type: 'tuition' } },
       }, { idempotencyKey: `tuition-checkout-${payment.id}` })
     } catch (error) {
@@ -640,6 +740,27 @@ app.post('/api/create-tuition-checkout', studentOnly, async (req, res) => {
 })
 
 const TUITION_CHECKOUT_TTL_SECONDS = 35 * 60
+
+const usd = cents => `$${((cents || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+// One line for the Stripe Checkout page, e.g. "CDL Class A Training — fees
+// $3,429.00 + housing $500.00 — Iman Trucking School".
+function tuitionDescription(account) {
+  const program = account.course?.name || 'CDL Training'
+  if (!account.fee_items?.length) return `${program} — Iman Trucking School`
+  const fees = pricingTotal(account.fee_items, 0, false)
+  return `${program} — fees ${usd(fees)}${account.housing_selected ? ` + housing ${usd(account.housing_fee_cents)}` : ', no housing'} — Iman Trucking School`
+}
+
+// Itemized lines for receipts and confirmations: the fee snapshot plus
+// housing when chosen, or a single tuition line for older accounts.
+function tuitionLines(account) {
+  const lines = account.fee_items?.length
+    ? account.fee_items.map(item => [item.label, item.amount_cents])
+    : [['Tuition', account.tuition_cents]]
+  if (account.housing_selected) lines.push(['Optional Housing', account.housing_fee_cents])
+  return lines
+}
 
 // Cancels a checkout attempt that was never paid and frees its installment.
 async function cancelPendingPayment(payment, reason = 'Replaced by a new checkout') {
@@ -679,6 +800,306 @@ async function requireTuitionAdmin(req, res, next) {
 
 const adminOnly = [requireUser, requireTuitionAdmin, rateLimit]
 
+// ---------------------------------------------------------------------------
+// Identity verification (Stripe Identity: document + live selfie). Images and
+// biometrics stay with Stripe; we keep the outcome and an audit trail. A
+// verified identity is not proof of DMV license or USCIS immigration status.
+// ---------------------------------------------------------------------------
+
+const IDENTITY_COLUMNS = 'id, method, document_type, status, provider_status, provider_document_type, document_expires_on, name_matches, failure_code, failure_reason, decided_at, decision_note, created_at, updated_at'
+const IDENTITY_ATTEMPTS_PER_DAY = 5
+
+// Where Stripe sends the student after the hosted verification flow.
+function identityReturnUrl(req) {
+  const url = new URL(checkoutReturnUrl(req, '/portal/identity', 'returned'))
+  url.search = 'identity=returned'
+  return url.toString()
+}
+
+async function latestIdentity(userId) {
+  const { data } = await supabase.from('cdl_identity_verifications').select('*')
+    .eq('user_id', userId).order('created_at', { ascending: false }).limit(1)
+  return data?.[0] || null
+}
+
+// Applies a Stripe VerificationSession to our record. A decision made by an
+// administrator and redacted records are never overwritten by the provider.
+async function applyIdentitySession(row, session) {
+  if (!row || row.decided_by || row.redacted_at) return row
+  let document = null
+  if (session.status === 'verified') {
+    const full = session.last_verification_report?.document ? session
+      : await identityStripe.identity.verificationSessions.retrieve(session.id, { expand: ['last_verification_report'] })
+    document = full.last_verification_report?.document || null
+  }
+  const { data: student } = await supabase.from('cdl_students').select('first_name, last_name').eq('id', row.student_id).maybeSingle()
+  const outcome = verificationOutcome({ session, document, student: student || {} })
+  const expires = document?.expiration_date
+  const now = new Date().toISOString()
+  const patch = {
+    status: outcome.status, provider_status: session.status, failure_code: outcome.failureCode,
+    failure_reason: outcome.failureCode ? studentReason(outcome.failureCode, outcome.reason) : '',
+    name_matches: outcome.nameMatches ?? row.name_matches, last_action: 'PROVIDER_UPDATE', updated_at: now,
+    decided_at: ['VERIFIED', 'FAILED'].includes(outcome.status) ? row.decided_at || now : null,
+    ...(document ? {
+      provider_document_type: document.type || null, document_issuing_country: document.issuing_country || null,
+      document_expires_on: expires?.year ? `${expires.year}-${String(expires.month).padStart(2, '0')}-${String(expires.day).padStart(2, '0')}` : null,
+    } : {}),
+  }
+  const { data, error } = await supabase.from('cdl_identity_verifications').update(patch)
+    .eq('id', row.id).is('decided_by', null).is('redacted_at', null).select().maybeSingle()
+  if (error) throw error
+  if (data && outcome.status === 'MANUAL_REVIEW' && row.status !== 'MANUAL_REVIEW') await alertIdentityReview(data)
+  if (data && ['verified', 'requires_input'].includes(session.status) && data.status !== 'PENDING') await tryCopyIdentityEvidence(data)
+  return data || row
+}
+
+async function alertIdentityReview(row) {
+  if (!resend) return
+  try {
+    const { data: student } = await supabase.from('cdl_students').select('first_name, last_name').eq('id', row.student_id).maybeSingle()
+    const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || 'A student'
+    await resend.emails.send({
+      from: emailFrom, to: adminNotificationEmail, subject: `Identity verification needs review - ${name}`,
+      html: `<p>${escapeHtml(name)}'s identity verification needs a manual review (${escapeHtml(row.method === 'ALTERNATIVE' ? 'in-person verification requested' : row.failure_code || 'flagged')}).</p><p>Open Admin → Identity verification to review it.</p>`,
+    })
+  } catch (error) {
+    console.error('Failed to send identity review alert:', error)
+  }
+}
+
+function identityForStudent(row) {
+  if (!row) return { status: 'NOT_STARTED', verification: null, canStart: true }
+  const { id, method, document_type, status, failure_code, failure_reason, document_expires_on, decided_at, decision_note, created_at, updated_at } = row
+  return {
+    status, canStart: status === 'FAILED' || (status === 'PENDING' && row.provider_status !== 'processing'),
+    verification: { id, method, document_type, status, failure_code, failure_reason, document_expires_on, decided_at, decision_note, created_at, updated_at },
+  }
+}
+
+// Current status. A pending attempt is refreshed from Stripe so a student
+// returning from verification sees the result even if the webhook is late.
+app.get('/api/me/identity', requireUser, requireStudent, async (req, res) => {
+  try {
+    let row = await latestIdentity(req.user.id)
+    if (row?.status === 'PENDING' && row.provider_session_id && identityStripe) {
+      try {
+        row = await applyIdentitySession(row, await identityStripe.identity.verificationSessions.retrieve(row.provider_session_id))
+      } catch (error) {
+        console.warn('Could not refresh identity session:', error?.message)
+      }
+    }
+    res.json(identityForStudent(row))
+  } catch (error) {
+    console.error('Error loading identity verification:', error)
+    res.status(500).json({ error: 'Could not load your identity verification.' })
+  }
+})
+
+const identityStartSchema = z.object({
+  documentType: z.enum(['DRIVING_LICENSE', 'GREEN_CARD']),
+  biometricConsent: z.literal(true),
+  consentVersion: z.literal(IDENTITY_CONSENT_VERSION),
+}).strict()
+
+// Starts (or resumes) a Stripe Identity session and returns its hosted URL.
+// The hosted flow captures the document and a live selfie with the camera;
+// uploading an existing photo is not offered (require_live_capture).
+app.post('/api/me/identity/sessions', studentOnly, async (req, res) => {
+  try {
+    const unavailable = requireClients(res)
+    if (unavailable) return res.status(503).json(unavailable)
+    const parsed = identityStartSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose your document and agree to the biometric consent to continue.' })
+    const { data: student } = await supabase.from('cdl_students').select('id, email').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+
+    let current = await latestIdentity(req.user.id)
+    if (current?.status === 'VERIFIED') return res.status(409).json({ error: 'Your identity is already verified.' })
+    if (current?.status === 'MANUAL_REVIEW') return res.status(409).json({ error: 'Admissions is reviewing your verification. We will contact you.' })
+    if (current?.status === 'PENDING' && current.provider_session_id) {
+      // A session Stripe no longer knows (for example after the key changed
+      // between test and live mode) is treated as abandoned.
+      const session = await identityStripe.identity.verificationSessions.retrieve(current.provider_session_id)
+        .catch(error => (error?.code === 'resource_missing' ? { id: current.provider_session_id, status: 'canceled', last_error: null } : Promise.reject(error)))
+      if (session.status === 'processing') return res.status(409).json({ error: 'Your verification is being processed. Check back in a few minutes.' })
+      if (session.status === 'requires_input' && !session.last_error && session.url && current.document_type === parsed.data.documentType) {
+        return res.json({ url: session.url, reused: true })
+      }
+      current = await applyIdentitySession(current, session)
+      // An unfinished attempt is closed so it cannot be completed later.
+      if (['requires_input', 'processing'].includes(session.status) && current.status === 'PENDING') {
+        try { await identityStripe.identity.verificationSessions.cancel(session.id) } catch { /* already finished */ }
+        await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', provider_status: 'canceled', failure_code: 'abandoned', failure_reason: studentReason('abandoned'), last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', current.id).eq('status', 'PENDING')
+      }
+      if (current.status === 'VERIFIED') return res.status(409).json({ error: 'Your identity is already verified.' })
+      if (current.status === 'MANUAL_REVIEW') return res.status(409).json({ error: 'Admissions is reviewing your verification. We will contact you.' })
+    }
+
+    const since = new Date(Date.now() - 86400000).toISOString()
+    const { count } = await supabase.from('cdl_identity_verifications').select('id', { count: 'exact', head: true })
+      .eq('user_id', req.user.id).eq('method', 'PROVIDER').gte('created_at', since)
+    if ((count || 0) >= IDENTITY_ATTEMPTS_PER_DAY) {
+      return res.status(429).json({ error: 'You have reached the number of verification attempts for today. Try again tomorrow or request in-person verification.' })
+    }
+
+    const now = new Date().toISOString()
+    const { data: row, error } = await supabase.from('cdl_identity_verifications').insert({
+      user_id: req.user.id, student_id: student.id, method: 'PROVIDER', document_type: parsed.data.documentType,
+      consent_version: IDENTITY_CONSENT_VERSION, consent_at: now, consent_ip: req.ip || null,
+    }).select().single()
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'A verification is already in progress. Refresh the page.' })
+      throw error
+    }
+    let session
+    try {
+      session = await identityStripe.identity.verificationSessions.create({
+        type: 'document', client_reference_id: row.id,
+        metadata: { verification_id: row.id, user_id: req.user.id, student_id: student.id, document_type: parsed.data.documentType },
+        options: { document: { allowed_types: DOCUMENT_TYPES[parsed.data.documentType].stripeTypes, require_live_capture: true, require_matching_selfie: true } },
+        ...(student.email ? { provided_details: { email: student.email } } : {}),
+        return_url: identityReturnUrl(req),
+      }, { idempotencyKey: `identity-${row.id}` })
+    } catch (error) {
+      await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', failure_code: 'provider_error', failure_reason: 'Verification could not be started. Please try again.', last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', row.id)
+      throw error
+    }
+    await supabase.from('cdl_identity_verifications').update({ provider_session_id: session.id, provider_status: session.status, updated_at: new Date().toISOString() }).eq('id', row.id)
+    res.status(201).json({ url: session.url })
+  } catch (error) {
+    console.error('Error starting identity verification:', error)
+    res.status(500).json({ error: 'Could not start identity verification. Please try again.' })
+  }
+})
+
+// Accessible alternative when the camera or biometric check cannot be used:
+// admissions verifies the document in person and records the decision.
+app.post('/api/me/identity/alternative', studentOnly, async (req, res) => {
+  try {
+    const parsed = z.object({ documentType: z.enum(['DRIVING_LICENSE', 'GREEN_CARD']), reason: z.string().trim().max(500).optional() }).strict().safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: 'Choose the document you will bring.' })
+    const { data: student } = await supabase.from('cdl_students').select('id').eq('user_id', req.user.id).maybeSingle()
+    if (!student) return res.status(404).json({ error: 'Student profile not found.' })
+    const current = await latestIdentity(req.user.id)
+    if (current && ['VERIFIED', 'MANUAL_REVIEW'].includes(current.status)) return res.status(409).json({ error: current.status === 'VERIFIED' ? 'Your identity is already verified.' : 'Admissions is already reviewing your verification.' })
+    if (current?.status === 'PENDING' && current.provider_session_id) {
+      try { await identityStripe?.identity.verificationSessions.cancel(current.provider_session_id) } catch { /* already finished */ }
+      await supabase.from('cdl_identity_verifications').update({ status: 'FAILED', provider_status: 'canceled', failure_code: 'abandoned', failure_reason: 'Replaced by an in-person verification request.', last_action: 'PROVIDER_UPDATE', decided_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', current.id).eq('status', 'PENDING')
+    }
+    const now = new Date().toISOString()
+    const { data: row, error } = await supabase.from('cdl_identity_verifications').insert({
+      user_id: req.user.id, student_id: student.id, method: 'ALTERNATIVE', provider: 'none', document_type: parsed.data.documentType,
+      status: 'MANUAL_REVIEW', last_action: 'ALTERNATIVE_REQUESTED', decision_note: parsed.data.reason || 'In-person verification requested.',
+      consent_version: 'alternative', consent_at: now, consent_ip: req.ip || null,
+    }).select().single()
+    if (error) throw error
+    await alertIdentityReview(row)
+    res.status(201).json(identityForStudent(row))
+  } catch (error) {
+    console.error('Error requesting alternative verification:', error)
+    res.status(500).json({ error: 'Could not send your request. Please try again.' })
+  }
+})
+
+async function handleIdentitySessionEvent(object) {
+  const { data: row } = await supabase.from('cdl_identity_verifications').select('*').eq('provider_session_id', object.id).maybeSingle()
+  if (!row) {
+    console.warn(`Identity webhook for unknown session ${object.id}`)
+    return
+  }
+  if (object.status === 'redacted' || object.redaction?.status === 'redacted') {
+    await supabase.from('cdl_identity_verifications').update({ redacted_at: new Date().toISOString(), last_action: 'REDACTED', updated_at: new Date().toISOString() }).eq('id', row.id).is('redacted_at', null)
+    return
+  }
+  await applyIdentitySession(row, object)
+}
+
+// Biometric data is redacted at Stripe 30 days after a final decision.
+async function redactIdentitySessions() {
+  if (!identityStripe || !supabase) return
+  const cutoff = new Date(Date.now() - REDACT_AFTER_DAYS * 86400000).toISOString()
+  const { data: rows } = await supabase.from('cdl_identity_verifications').select('*')
+    .in('status', ['VERIFIED', 'FAILED']).not('provider_session_id', 'is', null).is('redacted_at', null).lte('decided_at', cutoff).limit(50)
+  for (const row of rows || []) {
+    if (!dueForRedaction(row)) continue
+    try {
+      await identityStripe.identity.verificationSessions.redact(row.provider_session_id)
+      await supabase.from('cdl_identity_verifications').update({ redacted_at: new Date().toISOString(), last_action: 'REDACTED', updated_at: new Date().toISOString() }).eq('id', row.id)
+    } catch (error) {
+      console.error(`Could not redact identity session ${row.id}:`, error?.message)
+    }
+  }
+}
+
+// --------------------------------------------------------------- admin review
+app.get('/api/admin/identity-verifications', adminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_identity_verifications')
+      .select(`${IDENTITY_COLUMNS}, user_id, provider, provider_session_id, document_issuing_country, consent_version, consent_at, decided_by, redacted_at, student:cdl_students(first_name, last_name, email, phone), evidence:cdl_identity_evidence(copied_at, purged_at)`)
+      .order('updated_at', { ascending: false }).limit(500)
+    if (error) throw error
+    res.json({ verifications: (data || []).map(row => ({ ...row, stripe_dashboard_url: identityDashboardUrl(row.provider_session_id) })) })
+  } catch (error) {
+    console.error('Error listing identity verifications:', error)
+    res.status(500).json({ error: 'Could not load identity verifications.' })
+  }
+})
+
+app.get('/api/admin/identity-verifications/:id/events', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  try {
+    const { data, error } = await supabase.from('cdl_identity_events').select('*').eq('verification_id', req.params.id).order('created_at')
+    if (error) throw error
+    const actors = [...new Set((data || []).map(row => row.actor_id).filter(Boolean))]
+    const { data: profiles } = actors.length ? await supabase.from('profiles').select('id, full_name').in('id', actors) : { data: [] }
+    const names = Object.fromEntries((profiles || []).map(row => [row.id, row.full_name]))
+    res.json({ events: (data || []).map(row => ({ ...row, actor_name: row.actor_id ? names[row.actor_id] || 'Staff' : 'System' })) })
+  } catch (error) {
+    console.error('Error loading identity events:', error)
+    res.status(500).json({ error: 'Could not load the audit trail.' })
+  }
+})
+
+const identityDecisionSchema = z.object({
+  action: z.enum(['APPROVE', 'REJECT', 'REQUEST_RESUBMISSION']),
+  reason: z.string().trim().min(3).max(500),
+}).strict()
+
+// Manual review. APPROVE clears identity (including an exception when the
+// provider check could not be completed); REJECT and REQUEST_RESUBMISSION
+// leave it uncleared and let the student start a new attempt.
+app.post('/api/admin/identity-verifications/:id/decision', adminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  const parsed = identityDecisionSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'Choose a decision and give a reason (at least 3 characters).' })
+  try {
+    const { data: row } = await supabase.from('cdl_identity_verifications').select('*').eq('id', req.params.id).maybeSingle()
+    if (!row) return res.status(404).json({ error: 'Verification not found.' })
+    const { data: newer } = await supabase.from('cdl_identity_verifications').select('id').eq('user_id', row.user_id).gt('created_at', row.created_at).limit(1)
+    if (newer?.length) return res.status(409).json({ error: 'The student has a newer verification. Review that one instead.' })
+    const { action, reason } = parsed.data
+    if (action === 'APPROVE' && row.status === 'VERIFIED') return res.status(409).json({ error: 'This verification is already verified.' })
+    if (row.status === 'PENDING' && row.provider_session_id) {
+      try { await identityStripe?.identity.verificationSessions.cancel(row.provider_session_id) } catch { /* finished at Stripe */ }
+    }
+    const now = new Date().toISOString()
+    const { data, error } = await supabase.from('cdl_identity_verifications').update({
+      status: action === 'APPROVE' ? 'VERIFIED' : 'FAILED', last_action: action === 'APPROVE' ? 'APPROVED' : action === 'REJECT' ? 'REJECTED' : 'RESUBMISSION_REQUESTED',
+      decided_at: now, decided_by: req.user.id, decision_note: reason,
+      failure_code: action === 'APPROVE' ? '' : action === 'REJECT' ? 'rejected_by_staff' : 'resubmission_requested',
+      failure_reason: action === 'APPROVE' ? '' : action === 'REJECT' ? `Admissions could not verify your identity: ${reason}` : `Admissions asked you to verify again: ${reason}`,
+      updated_at: now,
+    }).eq('id', row.id).select(`${IDENTITY_COLUMNS}, decided_by`).single()
+    if (error) throw error
+    console.info(`Identity ${action} by ${req.user.email} for verification ${row.id}`)
+    res.json({ verification: data })
+  } catch (error) {
+    console.error('Error recording identity decision:', error)
+    res.status(500).json({ error: 'Could not record the decision.' })
+  }
+})
+
 const PAYMENT_METHOD_LABELS = { stripe: 'Card (Stripe)', cash: 'Cash', check: 'Check', money_order: 'Money order', other: 'Other' }
 
 function receiptNumberFor(paymentId) {
@@ -693,9 +1114,12 @@ app.get('/api/payments/:id/receipt', requireUser, requireStudentOrAdmin, async (
   if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid payment id.' })
   try {
     const { data: payment } = await supabase.from('cdl_payments')
-      .select('*, account:cdl_tuition_accounts!tuition_account_id(user_id, course:cdl_courses(name))')
+      .select('*, student:cdl_students(first_name, last_name)')
       .eq('id', req.params.id).in('status', ['succeeded', 'refunded']).maybeSingle()
-    if (!payment?.account || (!req.isAdmin && payment.account.user_id !== req.user.id)) return res.status(404).json({ error: 'Receipt not found.' })
+    const { data: account } = payment?.tuition_account_id
+      ? await supabase.from('cdl_tuition_account_balances').select('*, course:cdl_courses(name)').eq('id', payment.tuition_account_id).maybeSingle()
+      : { data: null }
+    if (!payment || !account || (!req.isAdmin && account.user_id !== req.user.id)) return res.status(404).json({ error: 'Receipt not found.' })
     const receipt = payment.receipt_number || receiptNumberFor(payment.id)
     const money = cents => `$${(cents / 100).toFixed(2)} ${String(payment.currency).toUpperCase()}`
     res.setHeader('Content-Type', 'application/pdf')
@@ -707,11 +1131,28 @@ app.get('/api/payments/:id/receipt', requireUser, requireStudentOrAdmin, async (
     doc.moveDown().fontSize(11).fillColor('#222')
     const method = payment.payment_method || 'stripe'
     pdfFields(doc, [
-      ['Receipt', receipt], ['Program', payment.account.course?.name || 'CDL Training'],
-      ['Amount', money(payment.amount_cents)],
+      ['Receipt', receipt], ['Student', `${payment.student?.first_name || ''} ${payment.student?.last_name || ''}`.trim()],
+      ['Program', account.course?.name || 'CDL Training'],
+    ])
+    doc.moveDown().font('Helvetica-Bold').text('Program costs')
+    doc.font('Helvetica')
+    for (const [name, cents] of tuitionLines(account)) doc.text(`${name}: ${money(cents)}`, { indent: 12 })
+    doc.moveDown(0.5)
+    pdfFields(doc, [
+      ['Housing selected', account.housing_selected ? 'Yes' : 'No'],
+      ['Total program cost', money(account.tuition_cents)],
+      ['Total paid to date', money(account.paid_cents)],
+      ...(account.financing_cents > 0 ? [['Financing', money(account.financing_cents)]] : []),
+      ...(account.waived_cents > 0 ? [['Waived', money(account.waived_cents)]] : []),
+      ['Remaining balance', money(account.remaining_cents)],
+    ])
+    doc.moveDown()
+    pdfFields(doc, [
+      ['Amount of this payment', money(payment.amount_cents)],
       ...(payment.refunded_cents > 0 ? [['Refunded', money(payment.refunded_cents)]] : []),
       ['Payment type', payment.payment_kind || 'Tuition'], ['Payment method', PAYMENT_METHOD_LABELS[method] || method],
-      ['Paid', new Date(payment.succeeded_at).toLocaleString('en-US')],
+      ['Payment date', new Date(payment.succeeded_at).toLocaleString('en-US')],
+      ['Payment status', payment.status === 'refunded' ? 'Refunded' : payment.refunded_cents > 0 ? 'Partially refunded' : 'Paid'],
       method === 'stripe'
         ? ['Stripe transaction', payment.stripe_payment_intent_id || payment.stripe_checkout_session_id]
         : ['Reference', payment.metadata?.reference],
@@ -1532,7 +1973,7 @@ async function requireSuperAdmin(req, res, next) {
     const { data: caller, error } = await supabase.from('profiles').select('role, active').eq('id', req.user.id).maybeSingle()
     if (error) throw error
     if (!caller?.active || caller.role !== 'super_admin' || req.user.email.trim().toLowerCase() !== SUPER_ADMIN_EMAIL) {
-      return res.status(403).json({ error: 'Only super administrators can manage course pricing.' })
+      return res.status(403).json({ error: 'Only the super administrator can do this.' })
     }
     next()
   } catch (error) {
@@ -1542,7 +1983,146 @@ async function requireSuperAdmin(req, res, next) {
 }
 
 const superAdminOnly = [requireUser, requireSuperAdmin, rateLimit]
-const COURSE_PRICING_COLUMNS = 'id, code, name, active, tuition_cents, deposit_cents, installment_count, installments_enabled, updated_at'
+
+// ------------------------------------------------------- identity evidence
+// The school keeps an encrypted copy of the document images, selfie, date of
+// birth and document number for 30 days after a decision. Stripe releases
+// these only to a restricted key (rk_...) and only for 48 hours after the
+// verification, so they are copied as soon as Stripe has a result.
+
+let identityEvidenceKey = null
+try {
+  if (process.env.IDENTITY_ENCRYPTION_KEY) identityEvidenceKey = identityKey(process.env.IDENTITY_ENCRYPTION_KEY)
+} catch (error) {
+  console.error(`Identity evidence is disabled: ${error.message}`)
+}
+const EVIDENCE_BUCKET = 'identity-evidence'
+const EVIDENCE_WINDOW_MS = 47 * 3600000
+
+function evidenceCopyEnabled() {
+  return !!(identityEvidenceKey && /^rk_/.test(process.env.STRIPE_IDENTITY_SECRET_KEY || '') && supabase)
+}
+
+async function downloadStripeFile(fileId) {
+  // Stripe requires links to identity files to expire within 30 seconds.
+  const link = await identityStripe.fileLinks.create({ file: fileId, expires_at: Math.floor(Date.now() / 1000) + 30 })
+  const response = await fetch(link.url)
+  if (!response.ok) throw new Error(`Stripe file download failed (${response.status})`)
+  return { bytes: Buffer.from(await response.arrayBuffer()), mime: response.headers.get('content-type') || 'image/jpeg' }
+}
+
+async function copyIdentityEvidence(row) {
+  if (!evidenceCopyEnabled() || !row?.provider_session_id || row.redacted_at) return
+  const { data: existing } = await supabase.from('cdl_identity_evidence').select('verification_id').eq('verification_id', row.id).maybeSingle()
+  if (existing) return
+  const session = await identityStripe.identity.verificationSessions.retrieve(row.provider_session_id, {
+    expand: ['last_verification_report.document.number', 'last_verification_report.document.dob', 'last_verification_report.document.expiration_date'],
+  })
+  const report = session.last_verification_report
+  if (!report) return
+  const wanted = [
+    ['document_front', report.document?.files?.[0]], ['document_back', report.document?.files?.[1]], ['selfie', report.selfie?.selfie],
+  ].filter(([, fileId]) => fileId)
+  const files = []
+  for (const [kind, fileId] of wanted) {
+    const { bytes, mime } = await downloadStripeFile(fileId)
+    const path = `${row.user_id}/${row.id}/${kind}.enc`
+    const { error } = await supabase.storage.from(EVIDENCE_BUCKET)
+      .upload(path, encryptBytes(identityEvidenceKey, bytes), { contentType: 'application/octet-stream', upsert: true })
+    if (error) throw error
+    files.push({ kind, path, mime, size: bytes.length })
+  }
+  const dob = report.document?.dob
+  const { error } = await supabase.from('cdl_identity_evidence').insert({
+    verification_id: row.id, user_id: row.user_id, files,
+    date_of_birth_enc: dob?.year ? encryptText(identityEvidenceKey, `${dob.year}-${String(dob.month).padStart(2, '0')}-${String(dob.day).padStart(2, '0')}`) : null,
+    document_number_enc: report.document?.number ? encryptText(identityEvidenceKey, report.document.number) : null,
+  })
+  if (error && error.code !== '23505') throw error
+  if (!error) await supabase.from('cdl_identity_events').insert({ verification_id: row.id, action: 'EVIDENCE_COPIED', to_status: row.status, detail: files.map(file => file.kind).join(', ') })
+}
+
+// Never fails the caller (webhook or page refresh); the hourly job retries.
+async function tryCopyIdentityEvidence(row) {
+  try {
+    await copyIdentityEvidence(row)
+  } catch (error) {
+    console.error(`Could not copy identity evidence for ${row?.id}:`, error?.message)
+  }
+}
+
+async function purgeIdentityEvidence(evidence, verificationId) {
+  const paths = (evidence.files || []).map(file => file.path)
+  if (paths.length) {
+    const { error } = await supabase.storage.from(EVIDENCE_BUCKET).remove(paths)
+    if (error) throw error
+  }
+  await supabase.from('cdl_identity_evidence').update({ date_of_birth_enc: null, document_number_enc: null, files: [], purged_at: new Date().toISOString() })
+    .eq('verification_id', verificationId).is('purged_at', null)
+  await supabase.from('cdl_identity_events').insert({ verification_id: verificationId, action: 'EVIDENCE_PURGED', detail: `Deleted ${EVIDENCE_RETENTION_DAYS} days after the decision` })
+}
+
+async function maintainIdentityEvidence() {
+  if (!supabase) return
+  // Delete copies 30 days after the decision.
+  const { data: kept } = await supabase.from('cdl_identity_evidence')
+    .select('verification_id, files, verification:cdl_identity_verifications(decided_at)').is('purged_at', null).limit(100)
+  for (const evidence of kept || []) {
+    if (!evidenceDue(evidence.verification?.decided_at)) continue
+    try { await purgeIdentityEvidence(evidence, evidence.verification_id) } catch (error) { console.error(`Could not delete identity evidence ${evidence.verification_id}:`, error?.message) }
+  }
+  // Retry copies Stripe still allows (48 hours after the verification).
+  if (!evidenceCopyEnabled()) return
+  const since = new Date(Date.now() - EVIDENCE_WINDOW_MS).toISOString()
+  const { data: recent } = await supabase.from('cdl_identity_verifications').select('*, evidence:cdl_identity_evidence(verification_id)')
+    .eq('method', 'PROVIDER').in('status', ['VERIFIED', 'FAILED', 'MANUAL_REVIEW']).not('provider_session_id', 'is', null)
+    .is('redacted_at', null).gte('updated_at', since).limit(50)
+  for (const row of recent || []) if (!row.evidence) await tryCopyIdentityEvidence(row)
+}
+
+// Super administrator only; every view is recorded in the audit trail.
+app.get('/api/admin/identity-verifications/:id/evidence', superAdminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid verification.' })
+  try {
+    const { data: evidence } = await supabase.from('cdl_identity_evidence').select('*').eq('verification_id', req.params.id).maybeSingle()
+    if (!evidence) return res.status(404).json({ error: 'No copy of the identity documents is stored for this verification.' })
+    if (evidence.purged_at) return res.json({ purged_at: evidence.purged_at, copied_at: evidence.copied_at, files: [] })
+    if (!identityEvidenceKey) return res.status(503).json({ error: 'Identity evidence cannot be decrypted: IDENTITY_ENCRYPTION_KEY is not set on the server.' })
+    await supabase.from('cdl_identity_events').insert({ verification_id: req.params.id, actor_id: req.user.id, action: 'EVIDENCE_VIEWED', detail: `Viewed by ${req.user.email}` })
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({
+      copied_at: evidence.copied_at, purged_at: null,
+      date_of_birth: evidence.date_of_birth_enc ? decryptText(identityEvidenceKey, evidence.date_of_birth_enc) : null,
+      document_number: evidence.document_number_enc ? decryptText(identityEvidenceKey, evidence.document_number_enc) : null,
+      files: (evidence.files || []).map(file => ({ kind: file.kind })),
+    })
+  } catch (error) {
+    console.error('Error loading identity evidence:', error)
+    res.status(500).json({ error: 'Could not load the identity documents.' })
+  }
+})
+
+app.get('/api/admin/identity-verifications/:id/evidence/:kind', superAdminOnly, async (req, res) => {
+  if (!uuidSchema.safeParse(req.params.id).success || !['document_front', 'document_back', 'selfie'].includes(req.params.kind)) {
+    return res.status(400).json({ error: 'Invalid request.' })
+  }
+  try {
+    if (!identityEvidenceKey) return res.status(503).json({ error: 'IDENTITY_ENCRYPTION_KEY is not set on the server.' })
+    const { data: evidence } = await supabase.from('cdl_identity_evidence').select('files, purged_at').eq('verification_id', req.params.id).maybeSingle()
+    const file = !evidence?.purged_at && (evidence?.files || []).find(item => item.kind === req.params.kind)
+    if (!file) return res.status(404).json({ error: 'Image not found.' })
+    const { data, error } = await supabase.storage.from(EVIDENCE_BUCKET).download(file.path)
+    if (error) throw error
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Content-Type', file.mime || 'image/jpeg')
+    res.setHeader('Content-Disposition', 'inline')
+    res.end(decryptBytes(identityEvidenceKey, Buffer.from(await data.arrayBuffer())))
+  } catch (error) {
+    console.error('Error loading identity image:', error)
+    if (!res.headersSent) res.status(500).json({ error: 'Could not load the image.' })
+  }
+})
+const COURSE_PRICING_COLUMNS = `id, code, name, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
 
 app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
   try {
@@ -1555,28 +2135,54 @@ app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
   }
 })
 
+// Every price version, newest first, with who set it.
+app.get('/api/admin/courses/:id/pricing-history', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid course id.' })
+    const { data, error } = await supabase.from('cdl_course_pricing_versions').select('*')
+      .eq('course_id', req.params.id).order('version', { ascending: false }).limit(50)
+    if (error) throw error
+    const editors = [...new Set((data || []).map(row => row.created_by).filter(Boolean))]
+    const { data: profiles } = editors.length ? await supabase.from('profiles').select('id, full_name').in('id', editors) : { data: [] }
+    const byId = Object.fromEntries((profiles || []).map(row => [row.id, row.full_name]))
+    res.json({ versions: (data || []).map(row => ({ ...row, created_by_name: byId[row.created_by] || null })) })
+  } catch (error) {
+    console.error('Error loading pricing history:', error)
+    res.status(500).json({ error: 'Could not load the pricing history.' })
+  }
+})
+
+const priceCents = z.number().int().min(0).max(10000000)
 const coursePricingSchema = z.object({
-  tuitionCents: z.number().int().min(0).max(10000000),
-  depositCents: z.number().int().min(0).max(10000000),
+  trainingCents: priceCents,
+  testingFeeCents: priceCents,
+  administrativeFeeCents: priceCents,
+  materialsFeeCents: priceCents,
+  housingFeeCents: priceCents,
+  depositCents: priceCents,
   installmentCount: z.number().int().min(1).max(24),
 }).strict()
-  .refine(input => input.depositCents <= input.tuitionCents, 'The deposit cannot be more than the tuition.')
+  .refine(input => input.trainingCents + input.testingFeeCents + input.administrativeFeeCents + input.materialsFeeCents <= 10000000, 'The total is too large.')
+  .refine(input => input.depositCents <= input.trainingCents + input.testingFeeCents + input.administrativeFeeCents + input.materialsFeeCents, 'The deposit cannot be more than the total.')
 
 // New prices apply to tuition accounts opened afterwards; existing accounts
-// keep the price the student agreed to.
+// keep the fee snapshot the student agreed to. The database derives the
+// total, bumps the pricing version and records it in the history.
 app.patch('/api/admin/courses/:id/pricing', superAdminOnly, async (req, res) => {
   try {
     if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid course id.' })
     const parsed = coursePricingSchema.safeParse(req.body)
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Enter a valid tuition, deposit and installment count.' })
-    const { tuitionCents, depositCents, installmentCount } = parsed.data
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Enter valid fees, deposit and installment count.' })
+    const input = parsed.data
     const { data, error } = await supabase.from('cdl_courses').update({
-      tuition_cents: tuitionCents, deposit_cents: depositCents, installment_count: installmentCount,
-      installments_enabled: installmentCount > 1, updated_at: new Date().toISOString(),
+      training_cents: input.trainingCents, testing_fee_cents: input.testingFeeCents, administrative_fee_cents: input.administrativeFeeCents,
+      materials_fee_cents: input.materialsFeeCents, housing_fee_cents: input.housingFeeCents, deposit_cents: input.depositCents,
+      installment_count: input.installmentCount, installments_enabled: input.installmentCount > 1,
+      pricing_updated_by: req.user.id, updated_at: new Date().toISOString(),
     }).eq('id', req.params.id).select(COURSE_PRICING_COLUMNS).maybeSingle()
     if (error) throw error
     if (!data) return res.status(404).json({ error: 'Course not found.' })
-    console.info(`Course pricing updated by ${req.user.email}: ${data.code} tuition=${tuitionCents} deposit=${depositCents} installments=${installmentCount}`)
+    console.info(`Course pricing updated by ${req.user.email}: ${data.code} v${data.pricing_version} training=${input.trainingCents} testing=${input.testingFeeCents} admin=${input.administrativeFeeCents} materials=${input.materialsFeeCents} housing=${input.housingFeeCents} deposit=${input.depositCents} installments=${input.installmentCount}`)
     res.json({ course: data })
   } catch (error) {
     console.error('Error updating course pricing:', error)
@@ -1638,6 +2244,11 @@ async function dispatchWebhookEvent(event) {
     'payment_intent.succeeded': handlePaymentIntentSucceeded,
     'payment_intent.payment_failed': handlePaymentIntentFailed,
     'charge.refunded': handleChargeRefunded,
+    'identity.verification_session.verified': handleIdentitySessionEvent,
+    'identity.verification_session.requires_input': handleIdentitySessionEvent,
+    'identity.verification_session.processing': handleIdentitySessionEvent,
+    'identity.verification_session.canceled': handleIdentitySessionEvent,
+    'identity.verification_session.redacted': handleIdentitySessionEvent,
   }
 
   const handler = map[event.type]
@@ -1858,6 +2469,8 @@ async function finalizeSuccessfulPayment(payment, paidAmount, paidCurrency) {
       status: 'succeeded',
       succeeded_at: succeededAt,
       receipt_number: receiptNumber,
+      // Callers that reconcile from a Checkout Session pass the intent here.
+      ...(payment.stripe_payment_intent_id ? { stripe_payment_intent_id: payment.stripe_payment_intent_id } : {}),
       updated_at: succeededAt,
     })
     .eq('id', payment.id)
@@ -1951,8 +2564,23 @@ async function getRecipientPhone(payment) {
   return null
 }
 
+function tuitionEmailHtml(tuition) {
+  if (!tuition) return ''
+  const row = (name, value, bold = false) => `<tr><td style="padding: 4px 0;">${escapeHtml(name)}</td><td style="padding: 4px 0; text-align: right;${bold ? ' font-weight: bold;' : ''}">${escapeHtml(value)}</td></tr>`
+  return `
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 20px 0;">
+        ${tuition.lines.map(([name, value]) => row(name, value)).join('')}
+        ${row('Housing selected', tuition.housing)}
+        ${row('Total program cost', tuition.total, true)}
+        ${row('Total paid', tuition.paid)}
+        ${row('Remaining balance', tuition.remaining, true)}
+        ${tuition.receiptNumber ? row('Receipt', tuition.receiptNumber) : ''}
+      </table>`
+}
+
 function paymentNotificationEmailHtml(rawCtx, { forAdmin }) {
-  const ctx = Object.fromEntries(Object.entries(rawCtx).map(([key, value]) => [key, value == null ? value : escapeHtml(value)]))
+  const { tuition, ...plain } = rawCtx
+  const ctx = Object.fromEntries(Object.entries(plain).map(([key, value]) => [key, value == null ? value : escapeHtml(value)]))
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #08085f;">${forAdmin ? 'New Payment Received' : 'Payment Confirmation'}</h2>
@@ -1969,7 +2597,7 @@ function paymentNotificationEmailHtml(rawCtx, { forAdmin }) {
         <p style="margin: 8px 0 0 0;"><strong>Transaction ID:</strong> ${ctx.transactionId}</p>
         <p style="margin: 8px 0 0 0;"><strong>Date:</strong> ${ctx.date}</p>
         ${ctx.referenceNo ? `<p style="margin: 8px 0 0 0;"><strong>Application Reference:</strong> ${ctx.referenceNo}</p>` : ''}
-      </div>
+      </div>${tuitionEmailHtml(tuition)}
       <p>Best regards,<br>Iman Trucking School</p>
     </div>
   `
@@ -1978,11 +2606,29 @@ function paymentNotificationEmailHtml(rawCtx, { forAdmin }) {
 function paymentNotificationSmsText(ctx, { forAdmin }) {
   return forAdmin
     ? `Iman Trucking School: payment received from ${ctx.name} for ${ctx.program}, ${ctx.amount}. Txn ${ctx.transactionId}.`
-    : `Iman Trucking School: your payment of ${ctx.amount} for ${ctx.program} was received. Thank you, ${ctx.firstName || 'there'}!`
+    : `Iman Trucking School: your payment of ${ctx.amount} for ${ctx.program} was received.${ctx.tuition ? ` Remaining balance: ${ctx.tuition.remaining}.` : ''} Thank you, ${ctx.firstName || 'there'}!`
+}
+
+// Itemized program costs and the balance after this payment, for tuition
+// confirmations. Null for other payment types or if the account is missing.
+async function tuitionNotificationContext(payment) {
+  if (payment.payment_type !== 'tuition' || !payment.tuition_account_id) return null
+  const { data: account } = await supabase.from('cdl_tuition_account_balances').select('*').eq('id', payment.tuition_account_id).maybeSingle()
+  if (!account) return null
+  return {
+    lines: tuitionLines(account).map(([name, cents]) => [name, usd(cents)]),
+    housing: account.housing_selected ? 'Yes' : 'No', total: usd(account.tuition_cents), paid: usd(account.paid_cents),
+    remaining: usd(account.remaining_cents), receiptNumber: payment.receipt_number || '',
+  }
 }
 
 async function sendPaymentNotifications(payment) {
   const ctx = buildNotificationContext(payment)
+  try {
+    ctx.tuition = await tuitionNotificationContext(payment)
+  } catch (error) {
+    console.error('Could not load the tuition breakdown for the confirmation:', error)
+  }
 
   const logDelivery = async (channel, audience, recipient, status, providerId = '', error = '') => {
     try {
@@ -2273,6 +2919,9 @@ export { app }
 
 const isDirectRun =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+// Hourly: redact at Stripe, delete expired school copies, retry copies (not during tests).
+if (!process.env.VITEST) setInterval(() => { void redactIdentitySessions(); void maintainIdentityEvidence() }, 3600000).unref()
 
 if (isDirectRun) {
   const PORT = process.env.PORT || 3001
