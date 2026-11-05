@@ -7,6 +7,7 @@ import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded
 import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded'
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded'
 import SellRoundedIcon from '@mui/icons-material/SellRounded'
+import InboxRoundedIcon from '@mui/icons-material/InboxRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
@@ -22,6 +23,7 @@ const links = [
   ['Tuition accounts', '/admin/tuition-accounts/', <AccountBalanceRoundedIcon />],
   ['Identity verification', '/admin/identity-verifications/', <BadgeRoundedIcon />],
   ['Financing referrals', '/admin/financing-referrals/', <AccountBalanceRoundedIcon />],
+  ['Website requests', '/admin/website-requests/', <InboxRoundedIcon />],
 ] as const
 // Pricing is changed only by the super administrator (see SuperAdminRoute).
 const superAdminLinks = [

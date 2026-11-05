@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url'
 import http from 'http'
 import { URL } from 'url'
 import { app as apiApp } from './server-express.js'
+import { redirectFor } from './shared/redirects.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3000
@@ -54,6 +55,8 @@ const mimeTypes = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.eot': 'application/vnd.ms-fontobject',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
 }
 
 const server = http.createServer((req, res) => {
@@ -62,6 +65,15 @@ const server = http.createServer((req, res) => {
   // Handle API routes by delegating to the Express payment/API app
   if (parsedUrl.pathname.startsWith('/api/')) {
     apiApp(req, res)
+    return
+  }
+
+  // Retired page URLs: permanent redirect to the page that replaced them.
+  const redirectTarget = redirectFor(parsedUrl.pathname)
+  if (redirectTarget) {
+    const [targetPath, hash] = redirectTarget.split('#')
+    res.writeHead(301, { Location: `${targetPath}${parsedUrl.search}${hash ? `#${hash}` : ''}` })
+    res.end()
     return
   }
 

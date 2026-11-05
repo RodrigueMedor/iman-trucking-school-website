@@ -32,30 +32,10 @@ import XIcon from '@mui/icons-material/X'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { homeForRole, isStaffRole } from '../lib/adminAuth'
+import { APPLY_PATH, mainNavigation, type NavLink } from '../navigation'
 
-const truckDrivingLinks = [
-  ['Truck Driving School', '/truck-driving-school/'],
-  ['Orlando Truck Driving School', '/truck-driving-school-orlando-florida/'],
-  ['CDL License Information', '/cdl-license-information/'],
-  ['CDL Permit Tests', '/cdl-permit-tests/'],
-  ['How to Become a Truck Driver', '/how-to-become-a-truck-driver/'],
-] as const
-
-const programMenuLinks = [
-  ['Our Program', '/our-program/'],
-  ['CDL Training', '/cdl-training/'],
-  ['CDL Training School', '/advantages-of-attending-a-cdl-training-school/'],
-  ['Class A CDL', '/class-a-cdl/'],
-  ['Amazon Career Choice', '/amazon-career-choice/'],
-  ['Tuition & Financing', '/tuition-financing/'],
-] as const
-
-const directLinks = [
-  ['CDL Assessment', '/cdl-assessment/'],
-  ['Apply for Training', '/portal/apply/training'],
-  ['Contact Us', '/contact-us/'],
-  ['Gallery', '/gallery/'],
-] as const
+/** A nav link is current when its page (ignoring any #section) is open. */
+const basePath = (path: string) => path.split('#')[0]
 
 const socialLinks = [
   ['Facebook', 'https://www.facebook.com/imantruckingschool', FacebookRoundedIcon],
@@ -63,7 +43,6 @@ const socialLinks = [
   ['Instagram', 'https://www.instagram.com/imantruckingschool/', InstagramIcon],
 ] as const
 
-type MenuLinks = typeof truckDrivingLinks | typeof programMenuLinks
 type SiteLanguage = 'en' | 'ht' | 'es'
 
 const siteLanguages: Array<{ code: SiteLanguage; short: string; label: string }> = [
@@ -172,10 +151,10 @@ function LanguageSelector({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
+function DesktopMenu({ label, links }: { label: string; links: readonly NavLink[] }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const { pathname } = useLocation()
-  const active = links.some(([, path]) => pathname === path)
+  const active = links.some(([, path]) => pathname === basePath(path))
   const closeMenu = () => setAnchor(null)
 
   return (
@@ -238,7 +217,7 @@ function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
             key={path}
             component={RouterLink}
             to={path}
-            selected={pathname === path}
+            selected={pathname === basePath(path) && !path.includes('#')}
             onClick={closeMenu}
             sx={{
               py: 1.2,
@@ -260,6 +239,14 @@ function DesktopMenu({ label, links }: { label: string; links: MenuLinks }) {
   )
 }
 
+function ApplyButton({ fullWidth = false, onClick }: { fullWidth?: boolean; onClick?: () => void }) {
+  return (
+    <Button component={RouterLink} to={APPLY_PATH} onClick={onClick} fullWidth={fullWidth} variant="contained" color="secondary" sx={{ whiteSpace: 'nowrap', minHeight: 42 }}>
+      Apply Now
+    </Button>
+  )
+}
+
 /** Sign in for visitors, My Portal for signed-in students. */
 function PortalButton({ fullWidth = false, onClick }: { fullWidth?: boolean; onClick?: () => void }) {
   const { session, profile } = useAuth()
@@ -271,8 +258,8 @@ function PortalButton({ fullWidth = false, onClick }: { fullWidth?: boolean; onC
       to={to}
       onClick={onClick}
       fullWidth={fullWidth}
-      variant="contained"
-      color="secondary"
+      variant="outlined"
+      color="primary"
       startIcon={<AccountCircleRoundedIcon />}
       sx={{ whiteSpace: 'nowrap', minHeight: 42 }}
     >
@@ -416,43 +403,14 @@ export function Header() {
               spacing={0.25}
               sx={{ display: { xs: 'none', lg: 'flex' }, alignSelf: 'stretch' }}
             >
-              <Button
-                component={RouterLink}
-                to="/"
-                color="inherit"
-                aria-current={pathname === '/' ? 'page' : undefined}
-                sx={{
-                  alignSelf: 'stretch',
-                  borderRadius: 0,
-                  color: pathname === '/' ? 'secondary.main' : '#09095e',
-                  px: 1.55,
-                  position: 'relative',
-                  '&::after': {
-                    content: '""',
-                    position: 'absolute',
-                    right: 12,
-                    bottom: 0,
-                    left: 12,
-                    height: 3,
-                    bgcolor: 'secondary.main',
-                    transform: pathname === '/' ? 'scaleX(1)' : 'scaleX(0)',
-                    transition: 'transform .2s ease',
-                  },
-                  '&:hover': { color: 'secondary.main', bgcolor: 'transparent' },
-                  '&:hover::after': { transform: 'scaleX(1)' },
-                }}
-              >
-                Home
-              </Button>
-              <DesktopMenu label="Truck Driving School" links={truckDrivingLinks} />
-              <DesktopMenu label="Our Program" links={programMenuLinks} />
-              {directLinks.map(([label, path]) => {
-                const active = pathname === path
+              {mainNavigation.map(item => {
+                if ('links' in item) return <DesktopMenu key={item.label} label={item.label} links={item.links} />
+                const active = pathname === item.path
                 return (
                   <Button
-                    key={path}
+                    key={item.path}
                     component={RouterLink}
-                    to={path}
+                    to={item.path}
                     color="inherit"
                     aria-current={active ? 'page' : undefined}
                     sx={{
@@ -476,7 +434,7 @@ export function Header() {
                       '&:hover::after': { transform: 'scaleX(1)' },
                     }}
                   >
-                    {label}
+                    {item.label}
                   </Button>
                 )
               })}
@@ -485,6 +443,7 @@ export function Header() {
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ display: { xs: 'none', lg: 'flex' }, ml: 'auto' }}>
               <LanguageSelector />
               <PortalButton />
+              <ApplyButton />
             </Stack>
 
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ display: { xs: 'flex', lg: 'none' } }}>
@@ -526,28 +485,16 @@ export function Header() {
             </IconButton>
           </Stack>
           <Box component="nav" aria-label="Mobile navigation" px={2} py={2} sx={{ overflowY: 'auto' }}>
-            <Button
-              component={RouterLink}
-              to="/"
-              onClick={() => setMobileOpen(false)}
-              fullWidth
-              sx={{ justifyContent: 'flex-start', py: 1.25, color: pathname === '/' ? 'secondary.main' : '#08085f' }}
-            >
-              Home
-            </Button>
-            {[
-              ['Truck Driving School', truckDrivingLinks],
-              ['Our Program', programMenuLinks],
-            ].map(([label, links]) => (
-              <Accordion key={label as string} disableGutters elevation={0} sx={{ '&::before': { display: 'none' } }}>
+            {mainNavigation.map(item => 'links' in item ? (
+              <Accordion key={item.label} disableGutters elevation={0} sx={{ '&::before': { display: 'none' } }}>
                 <AccordionSummary
                   expandIcon={<ExpandMoreRoundedIcon />}
                   sx={{ px: 1, color: '#08085f', fontWeight: 800 }}
                 >
-                  {label as string}
+                  {item.label}
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: '0 0 8px 12px' }}>
-                  {(links as MenuLinks).map(([itemLabel, path]) => (
+                  {item.links.map(([itemLabel, path]) => (
                     <Button
                       key={path}
                       component={RouterLink}
@@ -566,26 +513,27 @@ export function Header() {
                   ))}
                 </AccordionDetails>
               </Accordion>
-            ))}
-            {directLinks.map(([label, path]) => (
+            ) : (
               <Button
-                key={path}
+                key={item.path}
                 component={RouterLink}
-                to={path}
+                to={item.path}
                 onClick={() => setMobileOpen(false)}
                 fullWidth
+                aria-current={pathname === item.path ? 'page' : undefined}
                 sx={{
                   justifyContent: 'flex-start',
                   py: 1.25,
                   px: 1,
-                  color: pathname === path ? 'secondary.main' : '#08085f',
+                  color: pathname === item.path ? 'secondary.main' : '#08085f',
                 }}
               >
-                {label}
+                {item.label}
               </Button>
             ))}
           </Box>
           <Stack spacing={1.25} p={2.5} mt="auto" bgcolor="#f6f7fb">
+            <ApplyButton fullWidth onClick={() => setMobileOpen(false)} />
             <PortalButton fullWidth onClick={() => setMobileOpen(false)} />
             <LanguageSelector />
             <Button component="a" href="tel:8889914776" variant="outlined" startIcon={<PhoneRoundedIcon />}>

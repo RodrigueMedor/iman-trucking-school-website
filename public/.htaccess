@@ -1,6 +1,16 @@
 Options -MultiViews
 RewriteEngine On
 
+# Retired page URLs (keep in sync with shared/redirects.mjs).
+RewriteRule ^our-program/?$ /cdl-training/ [R=301,L]
+RewriteRule ^class-a-cdl/?$ /cdl-training/ [R=301,L]
+RewriteRule ^truck-driving-school/?$ /cdl-training/ [R=301,L]
+RewriteRule ^advantages-of-attending-a-cdl-training-school/?$ /cdl-training/ [R=301,L]
+RewriteRule ^truck-driving-school-orlando-florida/?$ /cdl-training-program-orlando-florida/ [R=301,L]
+RewriteRule ^cdl-license-information/?$ /how-to-get-a-cdl/ [R=301,L]
+RewriteRule ^how-to-become-a-truck-driver/?$ /how-to-get-a-cdl/ [R=301,L]
+RewriteRule ^cdl-permit-tests/?$ /how-to-get-a-cdl/#clp [R=301,NE,L]
+
 # Serve real assets and PHP API endpoints directly.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d

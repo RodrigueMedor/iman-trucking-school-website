@@ -7,6 +7,8 @@ import { HomeHero } from './components/HomeHero'
 import { HomePage } from './components/HomePage'
 import { InternalPage } from './components/InternalPage'
 import { pageTitles } from './navigation'
+import { usePageMeta } from './lib/usePageMeta'
+import { permanentRedirects } from '../shared/redirects.mjs'
 import { ProtectedRoute } from './components/admin/ProtectedRoute'
 import { SuperAdminRoute } from './components/admin/SuperAdminRoute'
 import { AdminLayout } from './components/admin/AdminLayout'
@@ -23,6 +25,7 @@ import { FinancingReferrals } from './pages/admin/FinancingReferrals'
 import { CoursePricing } from './pages/admin/CoursePricing'
 import { TuitionAccounts } from './pages/admin/TuitionAccounts'
 import { IdentityVerifications } from './pages/admin/IdentityVerifications'
+import { WebsiteRequests } from './pages/admin/WebsiteRequests'
 import { PortalAuth } from './portal/PortalAuth'
 import { RequireStudent } from './portal/RequireStudent'
 import { PortalLayout } from './portal/PortalLayout'
@@ -38,16 +41,33 @@ import { AssessmentTest } from './portal/pages/AssessmentTest'
 import { BillingPage } from './portal/pages/BillingPage'
 import { IdentityPage } from './portal/pages/IdentityPage'
 
+// Scrolls to #section links (the CDL menu links into guide sections), and to
+// the top on every other navigation.
 function ScrollManager() {
-  const { pathname } = useLocation()
+  const { pathname, hash } = useLocation()
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'auto' })
-  }, [pathname])
+    if (!hash) {
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      return
+    }
+    const id = decodeURIComponent(hash.slice(1))
+    let attempts = 0
+    let timer = 0
+    // The target may render a moment after navigation; retry briefly.
+    const scroll = () => {
+      const target = document.getElementById(id)
+      if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' })
+      else if (attempts++ < 20) timer = window.setTimeout(scroll, 50)
+    }
+    scroll()
+    return () => window.clearTimeout(timer)
+  }, [pathname, hash])
   return null
 }
 
 export function App() {
   const { pathname } = useLocation()
+  usePageMeta(pathname)
   const admin = pathname.startsWith('/admin/')
   // The portal has its own shell; the public header/footer show everywhere else.
   const publicChrome = !admin && !pathname.startsWith('/portal')
@@ -71,6 +91,7 @@ export function App() {
             </Route>
             <Route path="tuition-accounts/" element={<TuitionAccounts />} />
             <Route path="identity-verifications/" element={<IdentityVerifications />} />
+            <Route path="website-requests/" element={<WebsiteRequests />} />
             <Route path="cdl-enrollments/" element={<CDLEnrollments />} />
             <Route path="cdl-instructor/" element={<CDLInstructorDashboard />} />
           </Route>
@@ -109,6 +130,9 @@ export function App() {
         <Route path="/dispatcher-registration/" element={<Navigate to="/" replace />} />
         <Route path="/admin/dispatcher-registrations/" element={<Navigate to="/admin/" replace />} />
         <Route path="/admin/dispatcher-classes/" element={<Navigate to="/admin/" replace />} />
+        {Object.entries(permanentRedirects).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
         {Object.keys(pageTitles).map(path => (
           <Route key={path} path={path} element={path === '/' ? <HomePage /> : <InternalPage />} />
         ))}

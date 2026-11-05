@@ -6,6 +6,7 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { z } from 'zod'
+import { describeRequestDetails, parseWebsiteRequest, REQUEST_TYPE_LABELS } from './shared/websiteRequests.mjs'
 import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
@@ -2826,6 +2827,92 @@ async function sendChatAlert({ subject, html, text, sms }) {
   }
   return delivered
 }
+
+// ---------------------------------------------------------------------------
+// Website requests (graduate verification, student complaints, careers and
+// prior ELDT training). Public, so limited per IP; saved with the service
+// role (anon cannot insert) and triaged in Admin → Website requests.
+// ---------------------------------------------------------------------------
+
+const WEBSITE_REQUEST_LIMIT = 5
+const WEBSITE_REQUEST_WINDOW_MS = 10 * 60 * 1000
+const websiteRequestBuckets = new Map()
+
+function websiteRequestRateLimit(req, res, next) {
+  const now = Date.now()
+  const key = clientIp(req)
+  const bucket = websiteRequestBuckets.get(key)
+  if (!bucket || now - bucket.start >= WEBSITE_REQUEST_WINDOW_MS) {
+    websiteRequestBuckets.set(key, { start: now, count: 1 })
+    if (websiteRequestBuckets.size > 10000) {
+      for (const [k, value] of websiteRequestBuckets) if (now - value.start >= WEBSITE_REQUEST_WINDOW_MS) websiteRequestBuckets.delete(k)
+    }
+    return next()
+  }
+  bucket.count += 1
+  if (bucket.count > WEBSITE_REQUEST_LIMIT) return res.status(429).json({ error: 'Too many requests. Please wait a few minutes or call (888) 991-4776.' })
+  next()
+}
+
+function websiteRequestEmailHtml(row) {
+  const rows = [
+    ['Reference', row.reference_no], ['Type', REQUEST_TYPE_LABELS[row.request_type]], ['Name', row.full_name], ['Email', row.email], ['Phone', row.phone || '—'],
+    ...describeRequestDetails(row.request_type, row.details),
+  ].map(([label, value]) => `<p style="margin: 6px 0;"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`).join('')
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #08085f;">New website request: ${escapeHtml(REQUEST_TYPE_LABELS[row.request_type])}</h2>
+      <div style="background: #f5f7fb; padding: 16px 20px; border-radius: 8px; margin: 16px 0;">${rows}</div>
+      <p><strong>Message</strong><br>${escapeHtml(row.message).replace(/\n/g, '<br>')}</p>
+      <p style="color: #5d6a78;">Track and update this request in Admin → Website requests.</p>
+    </div>`
+}
+
+app.post('/api/website-requests', websiteRequestRateLimit, async (req, res) => {
+  try {
+    // Visitors get a plain-language fallback; operators see the cause in the logs.
+    if (!supabase) {
+      console.error('Website request rejected:', missingDatabaseError)
+      return res.status(503).json({ error: 'Online requests are temporarily unavailable. Please email info@imanlogistics.com or call (888) 991-4776.' })
+    }
+    const parsed = parseWebsiteRequest(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the form and try again.', fields: parsed.error.issues.map(issue => issue.path.join('.')) })
+    }
+    const input = parsed.data
+    // Spam trap: pretend success so bots learn nothing.
+    if (input.website) return res.status(201).json({ referenceNo: null })
+
+    // A double click or resend within a few minutes returns the first request.
+    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data: recent } = await supabase.from('cdl_website_requests').select('reference_no, message')
+      .eq('request_type', input.requestType).eq('email', input.email).gte('created_at', since).order('created_at', { ascending: false }).limit(5)
+    const duplicate = (recent || []).find(row => row.message === input.message)
+    if (duplicate) return res.status(200).json({ referenceNo: duplicate.reference_no })
+
+    const { data: row, error } = await supabase.from('cdl_website_requests').insert({
+      request_type: input.requestType, full_name: input.fullName, email: input.email, phone: input.phone || null,
+      message: input.message, details: input.details, source_page: input.sourcePage || null,
+    }).select('id, reference_no, request_type, full_name, email, phone, message, details').single()
+    if (error) throw error
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: emailFrom, to: admissionsEmail, replyTo: row.email,
+          subject: `${REQUEST_TYPE_LABELS[row.request_type]} request ${row.reference_no} from ${row.full_name}`,
+          html: websiteRequestEmailHtml(row),
+        })
+      } catch (emailError) {
+        console.error('Website request saved but the admissions email failed:', emailError?.message)
+      }
+    }
+    res.status(201).json({ referenceNo: row.reference_no })
+  } catch (error) {
+    console.error('Error saving website request:', error)
+    res.status(500).json({ error: 'We could not send your request. Please try again or call (888) 991-4776.' })
+  }
+})
 
 app.post('/api/chat', chatRateLimit, async (req, res) => {
   const body = req.body || {}

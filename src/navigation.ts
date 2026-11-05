@@ -1,40 +1,100 @@
-export const programLinks = [
-  ['Our Program', '/our-program/'],
-  ['Class A CDL', '/class-a-cdl/'],
-  ['CDL Training', '/cdl-training/'],
+// Single source for the header (desktop and mobile), footer and page titles.
+export type NavLink = readonly [label: string, path: string]
+
+export const APPLY_PATH = '/portal/apply/training'
+
+export const cdlTrainingLinks: readonly NavLink[] = [
+  ['CDL Training Overview', '/cdl-training/'],
+  ['How to Get a CDL', '/how-to-get-a-cdl/'],
+  ['Class A CDL Requirements', '/how-to-get-a-cdl/#requirements'],
+  ['Age Requirements & Under 21', '/cdl-age-requirements/'],
+  ['Medical Requirements', '/cdl-medical-requirements/'],
+  ['CDL Permit (CLP)', '/how-to-get-a-cdl/#clp'],
+  ['CDL Training & ELDT', '/how-to-get-a-cdl/#eldt'],
+  ['CDL Skills Test', '/how-to-get-a-cdl/#skills-test'],
   ['Tuition & Financing', '/tuition-financing/'],
-  ['Orlando CDL Program', '/cdl-training-program-orlando-florida/'],
-  ['Truck Driving School', '/truck-driving-school/'],
-] as const
+]
 
-export const resourceLinks = [
-  ['CDL License Information', '/cdl-license-information/'],
-  ['CDL Permit Tests', '/cdl-permit-tests/'],
-  ['How to Become a Driver', '/how-to-become-a-truck-driver/'],
-  ['Why Attend CDL School', '/advantages-of-attending-a-cdl-training-school/'],
+export const careerLinks: readonly NavLink[] = [
+  ['CDL Jobs & Career Services', '/cdl-jobs/'],
+  ['Truck Driver Pay in Florida', '/truck-driver-pay-florida/'],
+  ['Truck Driving Career Benefits', '/truck-driving-career-benefits/'],
+]
+
+// IMAN's counterpart to the reference site's school menu. Fleet training and
+// news are added once IMAN confirms it offers them / has coverage.
+export const imanSchoolLinks: readonly NavLink[] = [
+  ['About Us', '/about-us/'],
+  ['Choosing a CDL School', '/choosing-a-cdl-school/'],
+  ['Graduate Testimonials', '/testimonials/'],
+  ['School Gallery', '/gallery/'],
+  ['Career Services & Job Placement', '/cdl-jobs/#career-services'],
+  ['Orlando Training Center', '/cdl-training-program-orlando-florida/'],
+  ['ELDT Credit Transfer', '/eldt-credit-transfer/'],
+  ['Graduate Verification', '/graduate-verification/'],
+  ['Careers', '/careers/'],
+  ['CDL Instructor Requirements', '/careers/#cdl-instructor'],
+  ['Student Complaints', '/student-complaints/'],
+  ['Student Payments', '/payment/'],
+  ['Privacy Policy', '/privacy-policy/'],
+]
+
+// Dispatcher training was retired in October 2026 and no freight broker
+// program exists, so the CDL Assessment is the only other offering.
+export const otherTrainingLinks: readonly NavLink[] = [
+  ['CDL Assessment', '/cdl-assessment/'],
+]
+
+export type NavItem =
+  | { label: string; path: string }
+  | { label: string; links: readonly NavLink[] }
+
+export const mainNavigation: readonly NavItem[] = [
+  { label: 'Home', path: '/' },
+  { label: 'CDL Training', links: cdlTrainingLinks },
+  { label: 'Truck Driver Career', links: careerLinks },
+  { label: 'Other Training', links: otherTrainingLinks },
+  { label: 'Iman School', links: imanSchoolLinks },
+  { label: 'Contact Us', path: '/contact-us/' },
+]
+
+export const footerTrainingLinks: readonly NavLink[] = [
+  ['CDL Training Overview', '/cdl-training/'],
+  ['How to Get a CDL', '/how-to-get-a-cdl/'],
+  ['CDL Assessment', '/cdl-assessment/'],
+  ['Tuition & Financing', '/tuition-financing/'],
   ['Amazon Career Choice', '/amazon-career-choice/'],
-] as const
+  ['Orlando CDL Program', '/cdl-training-program-orlando-florida/'],
+]
 
-export const utilityLinks = [
+export const footerSchoolLinks: readonly NavLink[] = [
+  ['About Us', '/about-us/'],
   ['Testimonials', '/testimonials/'],
   ['Gallery', '/gallery/'],
+  ['Contact Us', '/contact-us/'],
+  ['Student Payment', '/payment/'],
   ['Kreyòl', '/kreyol/'],
-  ['Contact', '/contact-us/'],
-] as const
+]
 
 export const pageTitles: Record<string, string> = {
   '/': 'Iman Trucking School',
-  '/our-program/': 'Our CDL Training Program',
-  '/class-a-cdl/': 'Class A CDL',
-  '/cdl-training/': 'CDL Training',
+  '/cdl-training/': 'Class A CDL Training',
+  '/how-to-get-a-cdl/': 'How to Get Your Class A CDL License',
   '/cdl-training-program-orlando-florida/': 'CDL Training Program in Orlando',
-  '/truck-driving-school/': 'Truck Driving School',
-  '/truck-driving-school-orlando-florida/': 'Truck Driving School in Orlando',
-  '/cdl-license-information/': 'CDL License Information',
-  '/cdl-permit-tests/': 'CDL Permit Tests',
-  '/how-to-become-a-truck-driver/': 'How to Become a Truck Driver',
-  '/advantages-of-attending-a-cdl-training-school/': 'Advantages of CDL Training School',
+  '/cdl-age-requirements/': 'CDL Age Requirements in Florida',
+  '/cdl-medical-requirements/': 'CDL Medical Requirements',
+  '/cdl-jobs/': 'CDL Jobs & Career Services',
+  '/truck-driver-pay-florida/': 'Truck Driver Pay in Florida',
+  '/truck-driving-career-benefits/': 'Truck Driving Career Benefits',
+  '/tuition-financing/': 'Tuition & Financing',
+  '/cdl-assessment/': 'CDL Assessment',
   '/amazon-career-choice/': 'Amazon Career Choice',
+  '/about-us/': 'About Iman Trucking School',
+  '/choosing-a-cdl-school/': 'How to Choose a CDL School',
+  '/eldt-credit-transfer/': 'ELDT Credit Transfer',
+  '/graduate-verification/': 'Graduate Verification',
+  '/careers/': 'Careers at Iman',
+  '/student-complaints/': 'Student Complaints',
   '/testimonials/': 'Student Testimonials',
   '/gallery/': 'School Gallery',
   '/contact-us/': 'Contact Iman Trucking School',
@@ -43,6 +103,4 @@ export const pageTitles: Record<string, string> = {
   '/kreyol/': 'Iman Trucking School — Kreyòl',
   '/privacy-policy/': 'Privacy Policy',
   '/terms-of-use-page/': 'Terms of Use',
-  '/cdl-assessment/': 'CDL Assessment',
-  '/tuition-financing/': 'Tuition & Financing',
 }

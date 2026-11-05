@@ -12,6 +12,103 @@
   status = 200
   force = true
 
+# Retired page URLs (keep in sync with shared/redirects.mjs).
+[[redirects]]
+  from = "/our-program/"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/our-program"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/class-a-cdl/"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/class-a-cdl"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/truck-driving-school/"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/truck-driving-school"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/advantages-of-attending-a-cdl-training-school/"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/advantages-of-attending-a-cdl-training-school"
+  to = "/cdl-training/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/truck-driving-school-orlando-florida/"
+  to = "/cdl-training-program-orlando-florida/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/truck-driving-school-orlando-florida"
+  to = "/cdl-training-program-orlando-florida/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/cdl-license-information/"
+  to = "/how-to-get-a-cdl/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/cdl-license-information"
+  to = "/how-to-get-a-cdl/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/how-to-become-a-truck-driver/"
+  to = "/how-to-get-a-cdl/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/how-to-become-a-truck-driver"
+  to = "/how-to-get-a-cdl/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/cdl-permit-tests/"
+  to = "/how-to-get-a-cdl/#clp"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/cdl-permit-tests"
+  to = "/how-to-get-a-cdl/#clp"
+  status = 301
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
