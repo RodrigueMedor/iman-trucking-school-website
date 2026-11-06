@@ -28,6 +28,7 @@ import { CdlFaqSection } from './CdlFaq'
 import { WhyChooseIman } from './HomePage'
 import { APPLY_PATH } from '../navigation'
 import { cdlResourcePages } from '../config/cdlResourcePages'
+import { programPages } from '../config/programPages'
 import { TruckDriverPayData, TuitionPricing } from './CdlDataSections'
 import { WebsiteRequestForm } from './WebsiteRequestForm'
 import type { RequestType } from '../../shared/websiteRequests.mjs'
@@ -270,6 +271,7 @@ export const pageContent: Record<string, PageContent> = {
     ],
   },
   ...cdlResourcePages,
+  ...programPages,
 }
 
 // Copied from the school's WordPress gallery and resized for the web.
@@ -373,9 +375,14 @@ function PageHero({ title, eyebrow, intro }: { title: string; eyebrow: string; i
   )
 }
 
+// Programs that are not taken through the portal's CDL training application.
+const INQUIRY_ONLY_PAGES = ['/box-truck-training/', '/hotshot-training/']
+
 function EnrollmentCallout() {
   const { pathname } = useLocation()
-  const assessment = pathname.replace(/\/?$/, '/') === '/cdl-assessment/'
+  const normalizedPath = pathname.replace(/\/?$/, '/')
+  const assessment = normalizedPath === '/cdl-assessment/'
+  if (INQUIRY_ONLY_PAGES.includes(normalizedPath)) return <InquiryCallout />
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f4f6fa' }}>
       <Container>
@@ -396,6 +403,48 @@ function EnrollmentCallout() {
             </Stack>
           </Stack>
         </Card>
+      </Container>
+    </Box>
+  )
+}
+
+/** Call to action for programs that admissions enrolls directly. */
+function InquiryCallout() {
+  return (
+    <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f4f6fa' }}>
+      <Container>
+        <Card sx={{ overflow: 'hidden', borderRadius: 4, color: 'white', bgcolor: '#08085f', backgroundImage: 'linear-gradient(120deg, #08085f 0%, #11177f 70%, #d62531 160%)', boxShadow: '0 26px 70px rgba(8,8,95,.18)' }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" spacing={3} p={{ xs: 4, md: 6 }}>
+            <Box>
+              <Typography variant="overline" color="#ff7379" fontWeight={900} letterSpacing=".13em">Your next step</Typography>
+              <Typography component="h2" variant="h3" fontWeight={950} letterSpacing="-.04em" mt={0.75}>Ready to start training?</Typography>
+              <Typography color="rgba(255,255,255,.7)" mt={1.5}>Tell us about your goals and admissions will walk you through the schedule, tuition and next steps.</Typography>
+            </Box>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flex: '0 0 auto' }}>
+              <Button onClick={openEnrollment} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>Request information</Button>
+              <Button component="a" href="tel:8889914776" variant="outlined" size="large" startIcon={<PhoneRoundedIcon />} sx={{ px: 3, py: 1.5, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>(888) 991-4776</Button>
+            </Stack>
+          </Stack>
+        </Card>
+      </Container>
+    </Box>
+  )
+}
+
+const programLinks = [
+  ['Class A CDL Training', '/cdl-training/'],
+  ['Class B CDL Training', '/class-b-cdl-training/'],
+  ['Box Truck Training (Non-CDL)', '/box-truck-training/'],
+  ['Hotshot Training', '/hotshot-training/'],
+  ['How to Get a CDL', '/how-to-get-a-cdl/'],
+  ['Tuition & Financing', '/tuition-financing/'],
+] as const
+
+function ProgramLinksSection({ current }: { current: string }) {
+  return (
+    <Box component="section" sx={{ pb: { xs: 7, md: 10 }, pt: { xs: 1, md: 2 }, bgcolor: 'white' }}>
+      <Container>
+        <RelatedLinks title="Compare programs" links={programLinks.filter(([, path]) => path !== current)} />
       </Container>
     </Box>
   )
@@ -811,6 +860,8 @@ export function InternalPage() {
       {displayContent && <StandardContent content={displayContent} withFaq={normalized === '/how-to-get-a-cdl/'} />}
       {REQUEST_FORM_PAGES[normalized] && <WebsiteRequestForm key={normalized} type={REQUEST_FORM_PAGES[normalized]} />}
       {normalized in cdlResourcePages && <ResourceLinksSection current={normalized} />}
+      {normalized === '/class-b-cdl-training/' && <TuitionPricing />}
+      {normalized in programPages && <ProgramLinksSection current={normalized} />}
       {normalized === '/cdl-training/' && <CdlGuideCallout />}
       {normalized === '/how-to-get-a-cdl/' && (
         <CdlFaqSection>

@@ -25,6 +25,8 @@ import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded'
 import QuizRoundedIcon from '@mui/icons-material/QuizRounded'
+import InventoryRoundedIcon from '@mui/icons-material/Inventory2Rounded'
+import RvHookupRoundedIcon from '@mui/icons-material/RvHookupRounded'
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import TrafficRoundedIcon from '@mui/icons-material/TrafficRounded'
@@ -121,6 +123,9 @@ const skillsTestParts = [
 ] as const
 
 const otherPrograms = [
+  { icon: LocalShippingRoundedIcon, title: 'Class B CDL Training', text: 'Train for a Class B CDL to drive straight trucks, dump trucks, buses and other large single vehicles.', action: 'About Class B', to: '/class-b-cdl-training/' },
+  { icon: InventoryRoundedIcon, title: 'Box Truck Training (Non-CDL)', text: 'Learn to drive box trucks rated 26,000 lbs or less for delivery, moving and local freight work, no CDL required.', action: 'About box truck training', to: '/box-truck-training/' },
+  { icon: RvHookupRoundedIcon, title: 'Hotshot Training', text: 'Hotshot training for drivers with and without a CDL: pickups, gooseneck and flatbed trailers, and urgent loads.', action: 'About hotshot training', to: '/hotshot-training/' },
   { icon: QuizRoundedIcon, title: 'English Language Proficiency (ELP)', text: 'An online English Language Proficiency test and in-person evaluation to check your readiness before training or testing.', action: 'About the assessment', to: '/cdl-assessment/' },
   { icon: AccountBalanceWalletRoundedIcon, title: 'Tuition & Financing', text: 'Program costs and financing through Liberty Career Finance for students who qualify.', action: 'See tuition options', to: '/tuition-financing/' },
   { icon: AssignmentTurnedInRoundedIcon, title: 'Amazon Career Choice', text: 'Eligible Amazon associates may be able to use Career Choice education benefits toward training.', action: 'Learn how it works', to: '/amazon-career-choice/' },

@@ -10,6 +10,7 @@ import {
   Divider,
   Drawer,
   IconButton,
+  ListSubheader,
   Menu,
   MenuItem,
   Stack,
@@ -32,7 +33,7 @@ import XIcon from '@mui/icons-material/X'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { homeForRole, isStaffRole } from '../lib/adminAuth'
-import { APPLY_PATH, mainNavigation, type NavLink } from '../navigation'
+import { APPLY_PATH, mainNavigation, type NavGroup, type NavLink } from '../navigation'
 
 /** A nav link is current when its page (ignoring any #section) is open. */
 const basePath = (path: string) => path.split('#')[0]
@@ -151,7 +152,7 @@ function LanguageSelector({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function DesktopMenu({ label, links }: { label: string; links: readonly NavLink[] }) {
+function DesktopMenu({ label, links, groups }: { label: string; links: readonly NavLink[]; groups?: readonly NavGroup[] }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null)
   const { pathname } = useLocation()
   const active = links.some(([, path]) => pathname === basePath(path))
@@ -212,7 +213,9 @@ function DesktopMenu({ label, links }: { label: string; links: readonly NavLink[
           },
         }}
       >
-        {links.map(([itemLabel, path]) => (
+        {(groups ?? [{ heading: '', links }]).flatMap(group => [
+          ...(group.heading ? [<ListSubheader key={`h-${group.heading}`} disableSticky sx={{ px: 2.25, pt: 1, pb: 0.25, lineHeight: 2, color: 'secondary.main', fontSize: '.7rem', fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase' }}>{group.heading}</ListSubheader>] : []),
+          ...group.links.map(([itemLabel, path]) => (
           <MenuItem
             key={path}
             component={RouterLink}
@@ -233,7 +236,8 @@ function DesktopMenu({ label, links }: { label: string; links: readonly NavLink[
           >
             {itemLabel}
           </MenuItem>
-        ))}
+        )),
+        ])}
       </Menu>
     </Box>
   )
@@ -404,7 +408,7 @@ export function Header() {
               sx={{ display: { xs: 'none', lg: 'flex' }, alignSelf: 'stretch' }}
             >
               {mainNavigation.map(item => {
-                if ('links' in item) return <DesktopMenu key={item.label} label={item.label} links={item.links} />
+                if ('links' in item) return <DesktopMenu key={item.label} label={item.label} links={item.links} groups={item.groups} />
                 const active = pathname === item.path
                 return (
                   <Button
@@ -494,7 +498,10 @@ export function Header() {
                   {item.label}
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: '0 0 8px 12px' }}>
-                  {item.links.map(([itemLabel, path]) => (
+                  {(item.groups ?? [{ heading: '', links: item.links }]).map(group => (
+                    <Box key={group.heading || 'links'}>
+                    {group.heading && <Typography sx={{ px: 1, pt: 1, pb: 0.5, color: 'secondary.main', fontSize: '.7rem', fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase' }}>{group.heading}</Typography>}
+                    {group.links.map(([itemLabel, path]) => (
                     <Button
                       key={path}
                       component={RouterLink}
@@ -510,6 +517,8 @@ export function Header() {
                     >
                       {itemLabel}
                     </Button>
+                    ))}
+                    </Box>
                   ))}
                 </AccordionDetails>
               </Accordion>

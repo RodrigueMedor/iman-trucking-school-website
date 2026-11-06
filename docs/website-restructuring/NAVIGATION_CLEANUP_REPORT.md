@@ -105,3 +105,26 @@ It fits the desktop header down to 1200px and appears as a fourth group in the m
 ## Other Training removed (2026-11-05)
 
 At the owner's request, the "Other Training ▾" dropdown was removed and **CDL Assessment** moved into **CDL Training ▾** (after CDL Skills Test). The header is now: Home · CDL Training ▾ · Truck Driver Career ▾ · Iman School ▾ · Contact Us · Apply Now. The mobile drawer mirrors it. The CDL Assessment page, URL and footer link are unchanged.
+
+## Training programs added (2026-11-05)
+
+From the school's program list (team message, 2026-11-05):
+- Class B Training
+- Box Truck Training (non-CDL)
+- Hotshot Training (CDL and non-CDL)
+
+The reference site offers none of these; its own FAQ says it teaches only Class A.
+
+| New page | Notes |
+|---|---|
+| `/class-b-cdl-training/` | What Class B covers, Class B vs A, licensing steps; live tuition (Class B is an active portal course, $3,429) |
+| `/box-truck-training/` | Florida Class E vs Class B threshold (26,000 lbs), federal rules over 10,000 lbs interstate, driver skills; enrollment through admissions |
+| `/hotshot-training/` | CDL vs non-CDL by combined rating, USDOT/MC/insurance for owner-operators, driver skills; enrollment through admissions |
+
+The **CDL Training ▾** menu is now grouped:
+- **Training programs:** Class A, Class B, Box Truck (Non-CDL), Hotshot, ELP, Tuition & Financing
+- **Getting your CDL:** How to Get a CDL, Class A requirements, age, medical, CLP, ELDT, skills test
+
+The mobile drawer shows the same groups. The homepage "Other training and student services" and the footer list the new programs. Box truck and hotshot pages use "Request information" instead of "Apply for CDL Training", because they are not portal courses.
+
+**Needs the school's confirmation before more is published:** curriculum, length, schedule and tuition for box truck and hotshot training; whether hotshot training is offered for both CDL and non-CDL drivers, as the team message suggests.

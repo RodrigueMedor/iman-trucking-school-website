@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { APPLY_PATH, careerLinks, cdlTrainingLinks, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, pageTitles } from '../src/navigation'
+import { APPLY_PATH, careerLinks, cdlTrainingGroups, cdlTrainingLinks, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, pageTitles } from '../src/navigation'
 import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, pageDescriptions, pageMeta } from '../src/config/seo'
 import { cdlFaq, faqStructuredData } from '../src/config/cdlFaq'
 import { pageContent } from '../src/components/InternalPage'
@@ -8,6 +8,7 @@ import { permanentRedirects, redirectFor } from '../shared/redirects.mjs'
 import { groupCoursePricing } from '../src/components/CdlDataSections'
 import { floridaPay } from '../src/config/truckDriverPay'
 import { cdlResourcePages } from '../src/config/cdlResourcePages'
+import { programPages } from '../src/config/programPages'
 
 const basePath = (path: string) => path.split('#')[0]
 const anchor = (path: string) => path.split('#')[1]
@@ -72,6 +73,13 @@ describe('navigation', () => {
     expect(mainNavigation.map(item => item.label)).toEqual(['Home', 'CDL Training', 'Truck Driver Career', 'Iman School', 'Contact Us'])
   })
 
+  it('groups the CDL Training menu into programs and licensing steps', () => {
+    expect(cdlTrainingGroups.map(group => group.heading)).toEqual(['Training programs', 'Getting your CDL'])
+    expect(cdlTrainingGroups[0].links.map(([label]) => label)).toEqual(['Class A CDL Training', 'Class B CDL Training', 'Box Truck Training (Non-CDL)', 'Hotshot Training', 'English Language Proficiency (ELP)', 'Tuition & Financing'])
+    const paths = cdlTrainingLinks.map(([, path]) => path)
+    expect(new Set(paths).size).toBe(paths.length)
+  })
+
   it('gives every guide section a unique anchor', () => {
     const ids = pageContent['/how-to-get-a-cdl/'].sections.map(section => section.id)
     expect(ids.every(Boolean)).toBe(true)
@@ -116,7 +124,7 @@ describe('CDL FAQ', () => {
   })
 
   it('never mentions the reference school', () => {
-    const text = JSON.stringify([cdlFaq, pageContent]).toLowerCase()
+    const text = JSON.stringify([cdlFaq, pageContent, programPages]).toLowerCase()
     expect(text).not.toContain('roadmaster')
   })
 

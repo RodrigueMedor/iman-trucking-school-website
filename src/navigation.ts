@@ -3,18 +3,37 @@ export type NavLink = readonly [label: string, path: string]
 
 export const APPLY_PATH = '/portal/apply/training'
 
-export const cdlTrainingLinks: readonly NavLink[] = [
-  ['CDL Training Overview', '/cdl-training/'],
-  ['How to Get a CDL', '/how-to-get-a-cdl/'],
-  ['Class A CDL Requirements', '/how-to-get-a-cdl/#requirements'],
-  ['Age Requirements & Under 21', '/cdl-age-requirements/'],
-  ['Medical Requirements', '/cdl-medical-requirements/'],
-  ['CDL Permit (CLP)', '/how-to-get-a-cdl/#clp'],
-  ['CDL Training & ELDT', '/how-to-get-a-cdl/#eldt'],
-  ['CDL Skills Test', '/how-to-get-a-cdl/#skills-test'],
-  ['English Language Proficiency (ELP)', '/cdl-assessment/'],
-  ['Tuition & Financing', '/tuition-financing/'],
+export type NavGroup = { heading: string; links: readonly NavLink[] }
+
+// The CDL Training menu is grouped so programs and licensing steps stay easy
+// to scan. Programs come from the school (see docs/website-restructuring).
+export const cdlTrainingGroups: readonly NavGroup[] = [
+  {
+    heading: 'Training programs',
+    links: [
+      ['Class A CDL Training', '/cdl-training/'],
+      ['Class B CDL Training', '/class-b-cdl-training/'],
+      ['Box Truck Training (Non-CDL)', '/box-truck-training/'],
+      ['Hotshot Training', '/hotshot-training/'],
+      ['English Language Proficiency (ELP)', '/cdl-assessment/'],
+      ['Tuition & Financing', '/tuition-financing/'],
+    ],
+  },
+  {
+    heading: 'Getting your CDL',
+    links: [
+      ['How to Get a CDL', '/how-to-get-a-cdl/'],
+      ['Class A CDL Requirements', '/how-to-get-a-cdl/#requirements'],
+      ['Age Requirements & Under 21', '/cdl-age-requirements/'],
+      ['Medical Requirements', '/cdl-medical-requirements/'],
+      ['CDL Permit (CLP)', '/how-to-get-a-cdl/#clp'],
+      ['CDL Training & ELDT', '/how-to-get-a-cdl/#eldt'],
+      ['CDL Skills Test', '/how-to-get-a-cdl/#skills-test'],
+    ],
+  },
 ]
+
+export const cdlTrainingLinks: readonly NavLink[] = cdlTrainingGroups.flatMap(group => group.links)
 
 export const careerLinks: readonly NavLink[] = [
   ['CDL Jobs & Career Services', '/cdl-jobs/'],
@@ -42,18 +61,21 @@ export const imanSchoolLinks: readonly NavLink[] = [
 
 export type NavItem =
   | { label: string; path: string }
-  | { label: string; links: readonly NavLink[] }
+  | { label: string; links: readonly NavLink[]; groups?: readonly NavGroup[] }
 
 export const mainNavigation: readonly NavItem[] = [
   { label: 'Home', path: '/' },
-  { label: 'CDL Training', links: cdlTrainingLinks },
+  { label: 'CDL Training', links: cdlTrainingLinks, groups: cdlTrainingGroups },
   { label: 'Truck Driver Career', links: careerLinks },
   { label: 'Iman School', links: imanSchoolLinks },
   { label: 'Contact Us', path: '/contact-us/' },
 ]
 
 export const footerTrainingLinks: readonly NavLink[] = [
-  ['CDL Training Overview', '/cdl-training/'],
+  ['Class A CDL Training', '/cdl-training/'],
+  ['Class B CDL Training', '/class-b-cdl-training/'],
+  ['Box Truck Training (Non-CDL)', '/box-truck-training/'],
+  ['Hotshot Training', '/hotshot-training/'],
   ['How to Get a CDL', '/how-to-get-a-cdl/'],
   ['English Language Proficiency (ELP)', '/cdl-assessment/'],
   ['Tuition & Financing', '/tuition-financing/'],
@@ -74,6 +96,9 @@ export const pageTitles: Record<string, string> = {
   '/': 'Iman Trucking School',
   '/cdl-training/': 'Class A CDL Training',
   '/how-to-get-a-cdl/': 'How to Get Your Class A CDL License',
+  '/class-b-cdl-training/': 'Class B CDL Training',
+  '/box-truck-training/': 'Box Truck Training (Non-CDL)',
+  '/hotshot-training/': 'Hotshot Training',
   '/cdl-training-program-orlando-florida/': 'CDL Training Program in Orlando',
   '/cdl-age-requirements/': 'CDL Age Requirements in Florida',
   '/cdl-medical-requirements/': 'CDL Medical Requirements',
