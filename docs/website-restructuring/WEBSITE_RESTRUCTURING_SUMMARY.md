@@ -244,3 +244,23 @@ Price sheets in the site and the portal are titled by program (for example "BOX 
 3. Deploy the site
 4. `202611050002`
 5. Set prices and turn courses on in Admin → Courses & pricing
+
+## Addendum: "Account not set up" in the student portal (2026-11-05)
+
+**Cause:** the production Supabase project is shared with the Iman Logistics app. Its sign-up trigger (`on_auth_user_created` → `handle_new_user`, not in this repo) creates every new profile as `employee`, and it runs before the school trigger, which kept that role. The portal then depended on the API repair (`POST /api/me/student-account`) on first sign-in. That repair isn't available on Netlify, so affected accounts saw "Account not set up".
+
+**Production data fix (approved by the owner):** only `rodrigue.medor@gmail.com` was converted to a verified student, through the school trigger (app role `student`). Six other `employee` accounts were left unchanged; the live site converts them on their next portal sign-in.
+
+**Permanent fix:**
+- The school sign-up form sends `signup_source = 'iman_trucking_school'`.
+- `supabase/migrations/202611050004_school_signups_are_students.sql` redefines `handle_iman_auth_user` (based on `202610070001`, which matches production exactly) to convert only an `employee` profile with that tag, and only to `student`. Unverified accounts stay inactive until verified. Other roles and Logistics sign-ups are unchanged, and the Logistics trigger is untouched.
+- `supabase/tests/school_signup.sql` reproduces the Logistics trigger. It passes with the migration and fails without it, matching the production symptom.
+
+**Screen change:** "Account not set up" and "Account inactive" now show the signed-in email, a **Sign out and use another account** button, and the admissions phone number.
+
+**Production rollout order:**
+1. `202611050001`
+2. `202611050003`
+3. `202611050004`
+4. Deploy the site
+5. `202611050002`

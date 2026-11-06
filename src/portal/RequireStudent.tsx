@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, Typography } from '@mui/material'
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { homeForRole, isStaffRole } from '../lib/adminAuth'
 import { setUpStudentAccount } from './api'
@@ -14,16 +14,25 @@ export function PortalLoading() {
 }
 
 function Blocked({ title, body, action }: { title: string; body: string; action?: { label: string; to: string } }) {
+  const { session, signOut } = useAuth()
+  const navigate = useNavigate()
+  const email = session?.user.email
+  // Shows which account is signed in, so a student on the wrong account can switch.
+  const switchAccount = async () => {
+    await signOut()
+    navigate('/portal/sign-in', { replace: true })
+  }
   return (
     <Container maxWidth="sm" sx={{ py: { xs: 8, md: 12 } }}>
       <Paper sx={{ p: { xs: 3, md: 5 }, borderRadius: 3 }}>
         <Typography variant="h4" fontWeight={900} gutterBottom>{title}</Typography>
         <Typography color="text.secondary">{body}</Typography>
-        {action && (
-          <Stack direction="row" sx={{ mt: 3 }}>
-            <Button component={Link} to={action.to} variant="contained" color="secondary">{action.label}</Button>
-          </Stack>
-        )}
+        {email && <Typography color="text.secondary" sx={{ mt: 2 }}>Signed in as <Box component="strong" sx={{ color: 'text.primary', wordBreak: 'break-all' }}>{email}</Box></Typography>}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 3 }}>
+          {action && <Button component={Link} to={action.to} variant="contained" color="secondary">{action.label}</Button>}
+          {email && <Button onClick={() => void switchAccount()} variant={action ? 'outlined' : 'contained'} color="secondary">Sign out and use another account</Button>}
+          <Button component="a" href="tel:8889914776" variant="text">Call admissions (888) 991-4776</Button>
+        </Stack>
       </Paper>
     </Container>
   )
