@@ -39,6 +39,8 @@ const authed = [
   '/api/admin/tuition-accounts/00000000-0000-0000-0000-000000000001/payments',
   '/api/admin/tuition-payments/00000000-0000-0000-0000-000000000001/void',
   '/api/admin/tuition-installments/00000000-0000-0000-0000-000000000001/waive',
+  '/api/admin/courses',
+  '/api/admin/sessions',
 ]
 
 describe('student API authorization', () => {

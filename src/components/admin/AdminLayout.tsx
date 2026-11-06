@@ -27,7 +27,7 @@ const links = [
 ] as const
 // Pricing is changed only by the super administrator (see SuperAdminRoute).
 const superAdminLinks = [
-  ['Course pricing', '/admin/course-pricing/', <SellRoundedIcon />],
+  ['Courses & pricing', '/admin/course-pricing/', <SellRoundedIcon />],
 ] as const
 // Instructors can only open the instructor page (see ProtectedRoute).
 const instructorLinks = [

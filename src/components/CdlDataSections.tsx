@@ -4,12 +4,12 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { coursePricing } from '../../shared/tuition.mjs'
-import { CdlPricingSheet } from '../portal/CdlPricingSheet'
+import { CdlPricingSheet, sheetTitle } from '../portal/CdlPricingSheet'
 import { APPLY_PATH } from '../navigation'
 import { floridaPay, nationalMedianPay, orlandoPay, PAY_SOURCE } from '../config/truckDriverPay'
 
-type CourseRow = Record<string, unknown> & { id: string; name: string; code: string }
-type PriceGroup = { key: string; names: string[]; pricing: ReturnType<typeof coursePricing> }
+type CourseRow = Record<string, unknown> & { id: string; name: string; code: string; tuition_cents?: number }
+type PriceGroup = { key: string; names: string[]; codes: string[]; pricing: ReturnType<typeof coursePricing> }
 
 /** Active courses grouped by identical fees, so programs priced the same share one sheet. */
 export function groupCoursePricing(courses: CourseRow[]): PriceGroup[] {
@@ -18,39 +18,60 @@ export function groupCoursePricing(courses: CourseRow[]): PriceGroup[] {
     const pricing = coursePricing(course)
     if (pricing.totalWithoutHousingCents <= 0) continue
     const key = JSON.stringify([pricing.currency, pricing.items, pricing.housingFeeCents])
-    const group = groups.get(key) ?? { key, names: [], pricing }
+    const group = groups.get(key) ?? { key, names: [], codes: [], pricing }
     group.names.push(course.name)
+    group.codes.push(course.code)
     groups.set(key, group)
   }
   return [...groups.values()]
 }
 
+// Active courses as the public can see them (RLS hides inactive ones). One
+// request per page load, shared by every price sheet and call to action.
+let activeCourses: Promise<CourseRow[]> | null = null
+function loadActiveCourses() {
+  if (!supabase) return Promise.resolve([])
+  activeCourses ??= Promise.resolve(supabase.from('cdl_courses').select('*').eq('active', true).order('code'))
+    .then(({ data, error }) => (error || !data ? [] : (data as CourseRow[])))
+    .catch(() => [])
+  return activeCourses
+}
+
+export function useActiveCourses() {
+  const [courses, setCourses] = useState<CourseRow[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    void loadActiveCourses().then(rows => { if (alive) setCourses(rows) })
+    return () => { alive = false }
+  }, [])
+  return courses
+}
+
+/** True when at least one of these courses is offered and priced, so students can apply and pay online. */
+export function useCanEnrollOnline(codes: readonly string[]) {
+  const courses = useActiveCourses()
+  return Boolean(courses?.some(course => codes.includes(course.code) && Number(course.tuition_cents) > 0))
+}
+
 /**
  * Live tuition from the same course records the student portal charges, so
- * the public price can never drift from checkout. Renders nothing if prices
- * cannot be loaded (the page text still tells visitors to ask admissions).
+ * the public price can never drift from checkout. Optionally limited to some
+ * course codes. Renders nothing until a matching course is offered and priced.
  */
-export function TuitionPricing() {
-  const [groups, setGroups] = useState<PriceGroup[]>([])
-  useEffect(() => {
-    if (!supabase) return
-    let active = true
-    void supabase.from('cdl_courses').select('*').eq('active', true).order('code').then(({ data, error }) => {
-      if (active && !error && data) setGroups(groupCoursePricing(data as CourseRow[]))
-    })
-    return () => { active = false }
-  }, [])
+export function TuitionPricing({ codes, heading = 'What training costs' }: { codes?: readonly string[]; heading?: string }) {
+  const courses = useActiveCourses()
+  const groups = groupCoursePricing((courses ?? []).filter(course => !codes || codes.includes(course.code)))
   if (!groups.length) return null
   return (
     <Box component="section" aria-label="Current tuition" sx={{ py: { xs: 6, md: 9 }, bgcolor: '#f5f7fa' }}>
       <Container>
         <Typography variant="overline" color="secondary.main" fontWeight={900} letterSpacing=".12em">Current tuition</Typography>
-        <Typography component="h2" variant="h3" color="primary.main" fontWeight={950} letterSpacing="-.035em" mt={0.5}>What CDL training costs</Typography>
+        <Typography component="h2" variant="h3" color="primary.main" fontWeight={950} letterSpacing="-.035em" mt={0.5}>{heading}</Typography>
         <Stack spacing={4} mt={3}>
           {groups.map(group => (
             <Box key={group.key}>
-              <Typography color="text.secondary" fontWeight={700} mb={1.5}>Applies to: {group.names.join(', ')}. Full payment; housing is optional.</Typography>
-              <CdlPricingSheet items={group.pricing.items} housingFeeCents={group.pricing.housingFeeCents} currency={group.pricing.currency} />
+              <Typography color="text.secondary" fontWeight={700} mb={1.5}>Applies to: {group.names.join(', ')}.{group.pricing.housingFeeCents > 0 ? ' Housing is optional.' : ''}</Typography>
+              <CdlPricingSheet title={sheetTitle({ code: group.codes[0], name: group.names[0] })} items={group.pricing.items} housingFeeCents={group.pricing.housingFeeCents} currency={group.pricing.currency} />
             </Box>
           ))}
         </Stack>

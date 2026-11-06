@@ -29,7 +29,7 @@ import { WhyChooseIman } from './HomePage'
 import { APPLY_PATH } from '../navigation'
 import { cdlResourcePages } from '../config/cdlResourcePages'
 import { programPages } from '../config/programPages'
-import { TruckDriverPayData, TuitionPricing } from './CdlDataSections'
+import { TruckDriverPayData, TuitionPricing, useCanEnrollOnline } from './CdlDataSections'
 import { WebsiteRequestForm } from './WebsiteRequestForm'
 import type { RequestType } from '../../shared/websiteRequests.mjs'
 
@@ -375,14 +375,21 @@ function PageHero({ title, eyebrow, intro }: { title: string; eyebrow: string; i
   )
 }
 
-// Programs that are not taken through the portal's CDL training application.
-const INQUIRY_ONLY_PAGES = ['/box-truck-training/', '/hotshot-training/']
+// Program pages and the back-office courses (Admin -> Courses & pricing) that
+// price them. A page shows its live price and an online "Apply Now" only once
+// one of its courses is offered and priced; until then admissions enrolls.
+const PROGRAM_COURSES: Record<string, readonly string[]> = {
+  '/class-b-cdl-training/': ['CDL-B'],
+  '/box-truck-training/': ['BOX-TRUCK'],
+  '/hotshot-training/': ['HOTSHOT-NON-CDL', 'HOTSHOT-CDL'],
+}
+const INQUIRY_PAGES = ['/box-truck-training/', '/hotshot-training/']
 
 function EnrollmentCallout() {
   const { pathname } = useLocation()
   const normalizedPath = pathname.replace(/\/?$/, '/')
   const assessment = normalizedPath === '/cdl-assessment/'
-  if (INQUIRY_ONLY_PAGES.includes(normalizedPath)) return <InquiryCallout />
+  if (INQUIRY_PAGES.includes(normalizedPath)) return <InquiryCallout codes={PROGRAM_COURSES[normalizedPath]} />
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f4f6fa' }}>
       <Container>
@@ -409,7 +416,8 @@ function EnrollmentCallout() {
 }
 
 /** Call to action for programs that admissions enrolls directly. */
-function InquiryCallout() {
+function InquiryCallout({ codes }: { codes: readonly string[] }) {
+  const canApply = useCanEnrollOnline(codes)
   return (
     <Box sx={{ py: { xs: 7, md: 10 }, bgcolor: '#f4f6fa' }}>
       <Container>
@@ -421,7 +429,8 @@ function InquiryCallout() {
               <Typography color="rgba(255,255,255,.7)" mt={1.5}>Tell us about your goals and admissions will walk you through the schedule, tuition and next steps.</Typography>
             </Box>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flex: '0 0 auto' }}>
-              <Button onClick={openEnrollment} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>Request information</Button>
+              {canApply && <Button component={RouterLink} to={APPLY_PATH} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>Apply Now</Button>}
+              <Button onClick={openEnrollment} variant={canApply ? 'outlined' : 'contained'} color="secondary" size="large" endIcon={canApply ? undefined : <ArrowForwardRoundedIcon />} sx={canApply ? { px: 3, py: 1.5, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } } : { px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>Request information</Button>
               <Button component="a" href="tel:8889914776" variant="outlined" size="large" startIcon={<PhoneRoundedIcon />} sx={{ px: 3, py: 1.5, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>(888) 991-4776</Button>
             </Stack>
           </Stack>
@@ -860,7 +869,7 @@ export function InternalPage() {
       {displayContent && <StandardContent content={displayContent} withFaq={normalized === '/how-to-get-a-cdl/'} />}
       {REQUEST_FORM_PAGES[normalized] && <WebsiteRequestForm key={normalized} type={REQUEST_FORM_PAGES[normalized]} />}
       {normalized in cdlResourcePages && <ResourceLinksSection current={normalized} />}
-      {normalized === '/class-b-cdl-training/' && <TuitionPricing />}
+      {PROGRAM_COURSES[normalized] && <TuitionPricing codes={PROGRAM_COURSES[normalized]} heading={`What ${pageTitles[normalized]} costs`} />}
       {normalized in programPages && <ProgramLinksSection current={normalized} />}
       {normalized === '/cdl-training/' && <CdlGuideCallout />}
       {normalized === '/how-to-get-a-cdl/' && (

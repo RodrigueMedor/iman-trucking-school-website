@@ -202,3 +202,45 @@ No new environment variables are needed.
 2. Deploy the website and API.
 3. Apply `202611050002_public_page_content.sql` right after the deploy, so the new tuition text appears together with the live price sheet.
 4. Submit a test request on the live site, confirm it appears in Admin → Website requests and that admissions gets the email, then mark it Closed.
+
+## Addendum: Programs managed from the back office (2026-11-05)
+
+**Admin → Courses & pricing** (super admin) now manages the whole catalog:
+
+| Feature | Back office | API |
+|---|---|---|
+| Add a course | **Add course**: code, name, description, fee label, offered on/off. New courses start at $0 | `POST /api/admin/courses` |
+| Edit a course | **Details**: name, description, training-fee label, **Offer this course** switch | `PATCH /api/admin/courses/:id` |
+| Price a course | **Edit pricing**: fees, housing, deposit, installments. Versioned history (unchanged) | existing |
+| Start sessions | **Start sessions** section: add or edit name, dates, open/closed. Sessions are never deleted | `GET/POST /api/admin/sessions`, `PATCH /api/admin/sessions/:id` |
+
+When a course is **offered and priced**, it flows through the existing system with no further code:
+- website price sheets
+- training application program list
+- portal billing and Stripe Checkout
+- admin tuition accounts
+- receipts
+
+Box truck and hotshot pages switch their main button from "Request information" to **Apply Now**, and show their own live price sheet.
+
+Website page text (curriculum, schedule wording) stays editable in **Admin → Website content**.
+
+**Database:** `supabase/migrations/202611050003_training_programs.sql`
+- Adds `cdl_courses.training_fee_label`, so a non-CDL program isn't billed as "CDL Training".
+- Adds three courses, **inactive at $0** until priced:
+  - `BOX-TRUCK`: Box Truck Training (Non-CDL)
+  - `HOTSHOT-NON-CDL`: Hotshot Training (Non-CDL)
+  - `HOTSHOT-CDL`: Hotshot Training (CDL)
+
+Price sheets in the site and the portal are titled by program (for example "BOX TRUCK TRAINING"); CDL courses keep "CDL TRAINING".
+
+**Tests:**
+- Unit: 196/196 pass (fee label, sheet titles, auth on the new admin endpoints).
+- Database: the full chain of 37 migrations applied on throwaway Postgres 14. The three courses insert inactive with labels and pricing history. Pricing bumps the version. The public can't see inactive courses. The migration is safe to re-run. Portal, identity and website-request access tests passed. The tuition access test fails **only** because the PG14 workaround strips the PG15 view option it relies on; it was not changed by this work.
+
+**Production rollout order:**
+1. `202611050001`
+2. `202611050003`
+3. Deploy the site
+4. `202611050002`
+5. Set prices and turn courses on in Admin → Courses & pricing

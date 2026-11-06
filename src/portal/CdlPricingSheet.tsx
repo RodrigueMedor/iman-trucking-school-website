@@ -19,16 +19,22 @@ export function sheetMoney(cents: number, currency = 'usd') {
 
 export type SheetCourse = { id: string; name: string; detail: string; totalCents: number }
 
+/** Sheet header for a course: "CDL TRAINING" for CDL courses, else the program name (e.g. "BOX TRUCK TRAINING"). */
+export function sheetTitle(course?: { code?: string | null; name?: string | null } | null) {
+  if (!course?.name || !course.code || course.code.startsWith('CDL-')) return 'CDL TRAINING'
+  return course.name.replace(/\s*\(.*?\)\s*/g, ' ').trim().toUpperCase()
+}
+
 /**
  * The CDL Training "Special Pricing & Fee Breakdown" sheet plus the student's
  * own total due. Every amount comes from the server; this component only
  * displays them and reports the housing choice.
  */
 export function CdlPricingSheet({
-  items, housingFeeCents, currency = 'usd', housingSelected, onHousingChange, housingLockedReason, busy,
+  items, housingFeeCents, currency = 'usd', housingSelected, onHousingChange, housingLockedReason, busy, title = 'CDL TRAINING',
   courses, courseId, onCourse, due, action, note,
 }: {
-  items: FeeItem[]; housingFeeCents: number; currency?: string
+  items: FeeItem[]; housingFeeCents: number; currency?: string; title?: string
   housingSelected?: boolean; onHousingChange?: (selected: boolean) => void; housingLockedReason?: string; busy?: boolean
   courses?: SheetCourse[]; courseId?: string; onCourse?: (id: string) => void
   /** Omit for a read-only price list (public tuition page): no checkout panel. */
@@ -44,7 +50,7 @@ export function CdlPricingSheet({
       <Stack direction="row" alignItems="center" spacing={{ xs: 2, md: 4 }}>
         <Box component="img" src="/images/iman-logo.png" alt="IMAN Trucking School" sx={{ height: { xs: 52, md: 84 }, width: 'auto', flexShrink: 0, display: 'block' }} />
         <Box minWidth={0}>
-          <Typography id="cdl-sheet-title" component="h2" fontWeight={950} lineHeight={1} letterSpacing="-.01em" sx={{ fontSize: { xs: 30, sm: 40, md: 52 } }}>CDL TRAINING</Typography>
+          <Typography id="cdl-sheet-title" component="h2" fontWeight={950} lineHeight={1} letterSpacing="-.01em" sx={{ fontSize: title.length > 14 ? { xs: 22, sm: 32, md: 44 } : { xs: 30, sm: 40, md: 52 }, overflowWrap: 'anywhere' }}>{title}</Typography>
           <Typography fontWeight={600} sx={{ fontSize: { xs: 15, md: 20 }, mt: 1 }}>Special Pricing &amp; Fee Breakdown</Typography>
         </Box>
       </Stack>

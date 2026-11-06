@@ -447,7 +447,7 @@ app.get('/api/me/billing', requireUser, requireStudent, async (req, res) => {
 })
 
 // Course columns the itemized price is computed from (see coursePricing).
-const COURSE_PRICE_COLUMNS = 'tuition_cents, deposit_cents, installment_count, installments_enabled, training_cents, testing_fee_cents, administrative_fee_cents, materials_fee_cents, housing_fee_cents, currency, pricing_version'
+const COURSE_PRICE_COLUMNS = 'tuition_cents, deposit_cents, installment_count, installments_enabled, training_cents, testing_fee_cents, administrative_fee_cents, materials_fee_cents, housing_fee_cents, currency, pricing_version, training_fee_label'
 
 // Training applications a self-paid tuition account can be linked to.
 // Drafts and rejections are excluded.
@@ -2123,7 +2123,7 @@ app.get('/api/admin/identity-verifications/:id/evidence/:kind', superAdminOnly, 
     if (!res.headersSent) res.status(500).json({ error: 'Could not load the image.' })
   }
 })
-const COURSE_PRICING_COLUMNS = `id, code, name, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
+const COURSE_PRICING_COLUMNS = `id, code, name, description, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
 
 app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
   try {
@@ -2188,6 +2188,112 @@ app.patch('/api/admin/courses/:id/pricing', superAdminOnly, async (req, res) => 
   } catch (error) {
     console.error('Error updating course pricing:', error)
     res.status(500).json({ error: 'Could not update course pricing.' })
+  }
+})
+
+// Course catalog: super administrators add programs and control what the
+// website, application and checkout offer. Prices are set separately above
+// so every price change stays versioned.
+const courseDetailsSchema = z.object({
+  name: z.string().trim().min(2, 'Enter a course name.').max(120),
+  description: z.string().trim().max(500).optional().default(''),
+  trainingFeeLabel: z.string().trim().max(80).optional().default(''),
+  active: z.boolean(),
+}).strict()
+const newCourseSchema = courseDetailsSchema.extend({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9-]{1,29}$/, 'Use 2-30 letters, numbers or dashes for the code.'),
+}).strict()
+
+const courseDetailsRow = input => ({
+  name: input.name, description: input.description || null, training_fee_label: input.trainingFeeLabel || null,
+  active: input.active, updated_at: new Date().toISOString(),
+})
+
+app.post('/api/admin/courses', superAdminOnly, async (req, res) => {
+  try {
+    const parsed = newCourseSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the course details.' })
+    // New courses start at $0; set the price in the pricing dialog.
+    const { data, error } = await supabase.from('cdl_courses').insert({ code: parsed.data.code, ...courseDetailsRow(parsed.data), pricing_updated_by: req.user.id })
+      .select(COURSE_PRICING_COLUMNS).single()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A course with this code already exists.' })
+    if (error) throw error
+    console.info(`Course created by ${req.user.email}: ${data.code} active=${data.active}`)
+    res.status(201).json({ course: data })
+  } catch (error) {
+    console.error('Error creating course:', error)
+    res.status(500).json({ error: 'Could not create the course.' })
+  }
+})
+
+app.patch('/api/admin/courses/:id', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid course id.' })
+    const parsed = courseDetailsSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the course details.' })
+    const { data, error } = await supabase.from('cdl_courses').update(courseDetailsRow(parsed.data))
+      .eq('id', req.params.id).select(COURSE_PRICING_COLUMNS).maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Course not found.' })
+    console.info(`Course updated by ${req.user.email}: ${data.code} active=${data.active} name="${data.name}"`)
+    res.json({ course: data })
+  } catch (error) {
+    console.error('Error updating course:', error)
+    res.status(500).json({ error: 'Could not update the course.' })
+  }
+})
+
+// Start sessions shown in the training application. Sessions are closed,
+// never deleted, because applications reference them.
+const SESSION_COLUMNS = 'id, name, starts_at, ends_at, open, updated_at'
+const sessionSchema = z.object({
+  name: z.string().trim().min(2, 'Enter a session name.').max(120),
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a start date.'),
+  endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose an end date.'),
+  open: z.boolean(),
+}).strict().refine(input => input.endsOn >= input.startsOn, { message: 'The end date must be on or after the start date.', path: ['endsOn'] })
+const sessionRow = input => ({
+  name: input.name, starts_at: `${input.startsOn}T00:00:00Z`, ends_at: `${input.endsOn}T23:59:59Z`, open: input.open, updated_at: new Date().toISOString(),
+})
+
+app.get('/api/admin/sessions', superAdminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_academic_sessions').select(SESSION_COLUMNS).order('starts_at', { ascending: false })
+    if (error) throw error
+    res.json({ sessions: data || [] })
+  } catch (error) {
+    console.error('Error loading sessions:', error)
+    res.status(500).json({ error: 'Could not load start sessions.' })
+  }
+})
+
+app.post('/api/admin/sessions', superAdminOnly, async (req, res) => {
+  try {
+    const parsed = sessionSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the session details.' })
+    const { data, error } = await supabase.from('cdl_academic_sessions').insert(sessionRow(parsed.data)).select(SESSION_COLUMNS).single()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A session with this name already exists.' })
+    if (error) throw error
+    res.status(201).json({ session: data })
+  } catch (error) {
+    console.error('Error creating session:', error)
+    res.status(500).json({ error: 'Could not create the session.' })
+  }
+})
+
+app.patch('/api/admin/sessions/:id', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid session id.' })
+    const parsed = sessionSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the session details.' })
+    const { data, error } = await supabase.from('cdl_academic_sessions').update(sessionRow(parsed.data)).eq('id', req.params.id).select(SESSION_COLUMNS).maybeSingle()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A session with this name already exists.' })
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Session not found.' })
+    res.json({ session: data })
+  } catch (error) {
+    console.error('Error updating session:', error)
+    res.status(500).json({ error: 'Could not update the session.' })
   }
 })
 

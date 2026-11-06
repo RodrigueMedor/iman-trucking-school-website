@@ -71,7 +71,7 @@ export const programPages: Record<string, PageContent> = {
       {
         id: 'box-truck-at-iman',
         title: 'Box truck training at Iman',
-        body: 'Iman offers box truck training for drivers who do not need a CDL. Contact admissions for the current curriculum, schedule and tuition.',
+        body: 'Iman offers box truck training for drivers who do not need a CDL. When online enrollment is open, current tuition appears on this page and you can apply and pay from your student portal. Contact admissions for the curriculum and schedule.',
       },
     ],
   },
@@ -122,7 +122,7 @@ export const programPages: Record<string, PageContent> = {
       {
         id: 'hotshot-at-iman',
         title: 'Hotshot training at Iman',
-        body: 'Iman offers hotshot training for both CDL and non-CDL drivers. Contact admissions for the current curriculum, schedule and tuition, and to find out which option fits your truck and trailer.',
+        body: 'Iman offers hotshot training for both CDL and non-CDL drivers. When online enrollment is open, current tuition appears on this page and you can apply and pay from your student portal. Contact admissions for the curriculum and schedule, and to find out which option fits your truck and trailer.',
       },
     ],
   },
