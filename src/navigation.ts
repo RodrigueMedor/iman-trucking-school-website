@@ -12,7 +12,7 @@ export const cdlTrainingLinks: readonly NavLink[] = [
   ['CDL Permit (CLP)', '/how-to-get-a-cdl/#clp'],
   ['CDL Training & ELDT', '/how-to-get-a-cdl/#eldt'],
   ['CDL Skills Test', '/how-to-get-a-cdl/#skills-test'],
-  ['CDL Assessment', '/cdl-assessment/'],
+  ['English Language Proficiency (ELP)', '/cdl-assessment/'],
   ['Tuition & Financing', '/tuition-financing/'],
 ]
 
@@ -55,7 +55,7 @@ export const mainNavigation: readonly NavItem[] = [
 export const footerTrainingLinks: readonly NavLink[] = [
   ['CDL Training Overview', '/cdl-training/'],
   ['How to Get a CDL', '/how-to-get-a-cdl/'],
-  ['CDL Assessment', '/cdl-assessment/'],
+  ['English Language Proficiency (ELP)', '/cdl-assessment/'],
   ['Tuition & Financing', '/tuition-financing/'],
   ['Amazon Career Choice', '/amazon-career-choice/'],
   ['Orlando CDL Program', '/cdl-training-program-orlando-florida/'],
@@ -81,7 +81,7 @@ export const pageTitles: Record<string, string> = {
   '/truck-driver-pay-florida/': 'Truck Driver Pay in Florida',
   '/truck-driving-career-benefits/': 'Truck Driving Career Benefits',
   '/tuition-financing/': 'Tuition & Financing',
-  '/cdl-assessment/': 'CDL Assessment',
+  '/cdl-assessment/': 'English Language Proficiency (ELP)',
   '/amazon-career-choice/': 'Amazon Career Choice',
   '/about-us/': 'About Iman Trucking School',
   '/choosing-a-cdl-school/': 'How to Choose a CDL School',

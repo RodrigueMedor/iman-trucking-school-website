@@ -178,7 +178,7 @@ It also shows the live price sheet and the existing "other ways to pay" (offline
 | API | `POST /api/website-requests`: public, 5 requests per 10 minutes per IP, honeypot, duplicate check (same email, type and message within 5 minutes returns the first reference), saved with the service role, admissions emailed through the existing Resend setup (`APPLICATION_EMAIL_TO`), reply-to set to the visitor |
 | Back office | **Admin → Website requests** (`/admin/website-requests/`): sidebar link and dashboard card; filter by type and status; search; status + internal notes; "Reply by email"; warning when a verification has no graduate permission |
 | Database | `supabase/migrations/202611050001_website_requests.sql`: `cdl_website_requests` with `WR-…` reference numbers. Only admins (`is_super_admin()`) can read it. Staff can change only status and notes; visitor content can't be edited or deleted. The trigger stamps `updated_by` and `resolved_at`. Anon, students and instructors have no access |
-| Content fix | `supabase/migrations/202611050002_tuition_page_content.sql`: replaces the stale tuition text only if it still matches the old wording; admin edits are never overwritten |
+| Content fix | `supabase/migrations/202611050002_public_page_content.sql`: replaces the stale tuition text only if it still matches the old wording; admin edits are never overwritten |
 
 No new environment variables are needed.
 
@@ -200,5 +200,5 @@ No new environment variables are needed.
 
 1. Apply `202611050001_website_requests.sql` to production. It is additive and safe before the code ships.
 2. Deploy the website and API.
-3. Apply `202611050002_tuition_page_content.sql` right after the deploy, so the new tuition text appears together with the live price sheet.
+3. Apply `202611050002_public_page_content.sql` right after the deploy, so the new tuition text appears together with the live price sheet.
 4. Submit a test request on the live site, confirm it appears in Admin → Website requests and that admissions gets the email, then mark it Closed.

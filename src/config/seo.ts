@@ -17,7 +17,7 @@ export const pageDescriptions: Record<string, string> = {
   '/truck-driver-pay-florida/': 'How much truck drivers earn in Florida and the Orlando area, from the latest U.S. Bureau of Labor Statistics wage data, and what affects pay.',
   '/truck-driving-career-benefits/': 'The benefits of a truck driving career, job outlook from the Bureau of Labor Statistics, and the realities to consider before you start.',
   '/tuition-financing/': 'Current CDL tuition and fees at Iman Trucking School, optional housing, and ways to pay, including Liberty Career Finance and Amazon Career Choice.',
-  '/cdl-assessment/': 'Request a CDL Assessment: an online English Language Proficiency test plus an in-person evaluation to check your readiness before training or testing.',
+  '/cdl-assessment/': 'Request an English Language Proficiency (ELP) assessment: an online ELP test plus an in-person evaluation to check your readiness before training or testing.',
   '/amazon-career-choice/': 'How eligible Amazon employees may be able to use Career Choice education benefits toward CDL training at Iman Trucking School.',
   '/about-us/': 'About Iman Trucking School: hands-on Class A CDL training in Central Florida, what students can expect, and how to visit the training center.',
   '/choosing-a-cdl-school/': 'How to choose a CDL school: check ELDT registration, Florida licensing, behind-the-wheel time, itemized pricing and job-support claims before you enroll.',

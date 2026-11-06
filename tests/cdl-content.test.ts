@@ -67,8 +67,8 @@ describe('navigation', () => {
     }
   })
 
-  it('lists the CDL Assessment under CDL Training and has no Other Training menu', () => {
-    expect(cdlTrainingLinks.some(([label, path]) => label === 'CDL Assessment' && path === '/cdl-assessment/')).toBe(true)
+  it('lists the ELP assessment under CDL Training and has no Other Training menu', () => {
+    expect(cdlTrainingLinks.some(([label, path]) => label === 'English Language Proficiency (ELP)' && path === '/cdl-assessment/')).toBe(true)
     expect(mainNavigation.map(item => item.label)).toEqual(['Home', 'CDL Training', 'Truck Driver Career', 'Iman School', 'Contact Us'])
   })
 

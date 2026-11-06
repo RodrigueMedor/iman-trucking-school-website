@@ -121,7 +121,7 @@ const skillsTestParts = [
 ] as const
 
 const otherPrograms = [
-  { icon: QuizRoundedIcon, title: 'CDL Assessment', text: 'An English Language Proficiency test and in-person evaluation to check your readiness before training or testing.', action: 'About the assessment', to: '/cdl-assessment/' },
+  { icon: QuizRoundedIcon, title: 'English Language Proficiency (ELP)', text: 'An online English Language Proficiency test and in-person evaluation to check your readiness before training or testing.', action: 'About the assessment', to: '/cdl-assessment/' },
   { icon: AccountBalanceWalletRoundedIcon, title: 'Tuition & Financing', text: 'Program costs and financing through Liberty Career Finance for students who qualify.', action: 'See tuition options', to: '/tuition-financing/' },
   { icon: AssignmentTurnedInRoundedIcon, title: 'Amazon Career Choice', text: 'Eligible Amazon associates may be able to use Career Choice education benefits toward training.', action: 'Learn how it works', to: '/amazon-career-choice/' },
 ] as const

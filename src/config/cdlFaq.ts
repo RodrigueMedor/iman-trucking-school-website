@@ -58,8 +58,8 @@ export const cdlFaq: FaqItem[] = [
     answer: 'Student accounts are available to U.S. citizens and lawful permanent residents. If you are not sure whether you qualify, contact admissions before you register.',
   },
   {
-    question: 'Should I take the CDL Assessment first?',
-    answer: 'The CDL Assessment is optional. It checks your English Language Proficiency and readiness and is a good starting point if you want to know where you stand before training or testing. It is not a CDL test or certification.',
+    question: 'Should I take the English Language Proficiency (ELP) assessment first?',
+    answer: 'The ELP assessment is optional. It checks your English Language Proficiency and readiness and is a good starting point if you want to know where you stand before training or testing. It is not a CDL test or certification.',
   },
   {
     question: 'Do you help graduates find driving jobs?',

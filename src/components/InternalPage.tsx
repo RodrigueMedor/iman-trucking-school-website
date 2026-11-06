@@ -69,7 +69,7 @@ export const pageContent: Record<string, PageContent> = {
   },
   '/cdl-assessment/': {
     eyebrow: 'Know where you stand',
-    intro: 'A CDL Assessment checks your English proficiency and readiness before training or testing. Read about it freely here; create an account only when you are ready to request one.',
+    intro: 'An English Language Proficiency (ELP) assessment checks your English and readiness before training or testing. Read about it freely here; create an account only when you are ready to request one.',
     sections: [
       {
         title: 'What the assessment covers',
@@ -88,7 +88,7 @@ export const pageContent: Record<string, PageContent> = {
       },
       {
         title: 'How to apply',
-        body: 'Select Apply for a CDL Assessment, then sign in or create a free account. You return straight to your request, can save it as a draft, and can track its status from your dashboard after you submit.',
+        body: 'Select Apply for an ELP Assessment, then sign in or create a free account. You return straight to your request, can save it as a draft, and can track its status from your dashboard after you submit.',
       },
     ],
   },
@@ -388,7 +388,7 @@ function EnrollmentCallout() {
             </Box>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flex: '0 0 auto' }}>
               <Button component={RouterLink} to={assessment ? '/portal/apply/assessment' : '/portal/apply/training'} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ px: 3.5, py: 1.5, boxShadow: '0 14px 30px rgba(214,31,44,.28)' }}>
-                {assessment ? 'Apply for a CDL Assessment' : 'Apply for CDL Training'}
+                {assessment ? 'Apply for an ELP Assessment' : 'Apply for CDL Training'}
               </Button>
               <Button onClick={openEnrollment} variant="outlined" size="large" sx={{ px: 3, py: 1.5, color: 'white', borderColor: 'rgba(255,255,255,.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,.08)' } }}>
                 Request information
@@ -814,7 +814,7 @@ export function InternalPage() {
       {normalized === '/cdl-training/' && <CdlGuideCallout />}
       {normalized === '/how-to-get-a-cdl/' && (
         <CdlFaqSection>
-          <RelatedLinks title="Next steps" links={[['Age Requirements & Under 21', '/cdl-age-requirements/'], ['Medical Requirements', '/cdl-medical-requirements/'], ['CDL Training Overview', '/cdl-training/'], ['Tuition & Financing', '/tuition-financing/'], ['CDL Jobs & Career Services', '/cdl-jobs/'], ['CDL Assessment', '/cdl-assessment/'], ['Apply Now', APPLY_PATH], ['Contact Us', '/contact-us/']]} />
+          <RelatedLinks title="Next steps" links={[['Age Requirements & Under 21', '/cdl-age-requirements/'], ['Medical Requirements', '/cdl-medical-requirements/'], ['CDL Training Overview', '/cdl-training/'], ['Tuition & Financing', '/tuition-financing/'], ['CDL Jobs & Career Services', '/cdl-jobs/'], ['English Language Proficiency (ELP)', '/cdl-assessment/'], ['Apply Now', APPLY_PATH], ['Contact Us', '/contact-us/']]} />
         </CdlFaqSection>
       )}
       {normalized === '/about-us/' && <AboutExtras />}
