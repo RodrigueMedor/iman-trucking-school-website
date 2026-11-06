@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { APPLY_PATH, careerLinks, cdlTrainingLinks, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, otherTrainingLinks, pageTitles } from '../src/navigation'
+import { APPLY_PATH, careerLinks, cdlTrainingLinks, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, pageTitles } from '../src/navigation'
 import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, pageDescriptions, pageMeta } from '../src/config/seo'
 import { cdlFaq, faqStructuredData } from '../src/config/cdlFaq'
 import { pageContent } from '../src/components/InternalPage'
@@ -61,10 +61,15 @@ describe('navigation', () => {
   })
 
   it('has no duplicate links within a menu and no empty dropdowns', () => {
-    for (const links of [cdlTrainingLinks, careerLinks, imanSchoolLinks, otherTrainingLinks, footerTrainingLinks, footerSchoolLinks]) {
+    for (const links of [cdlTrainingLinks, careerLinks, imanSchoolLinks, footerTrainingLinks, footerSchoolLinks]) {
       expect(links.length).toBeGreaterThan(0)
       expect(new Set(links.map(([, path]) => path)).size).toBe(links.length)
     }
+  })
+
+  it('lists the CDL Assessment under CDL Training and has no Other Training menu', () => {
+    expect(cdlTrainingLinks.some(([label, path]) => label === 'CDL Assessment' && path === '/cdl-assessment/')).toBe(true)
+    expect(mainNavigation.map(item => item.label)).toEqual(['Home', 'CDL Training', 'Truck Driver Career', 'Iman School', 'Contact Us'])
   })
 
   it('gives every guide section a unique anchor', () => {

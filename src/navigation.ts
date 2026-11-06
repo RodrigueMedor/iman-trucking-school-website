@@ -12,6 +12,7 @@ export const cdlTrainingLinks: readonly NavLink[] = [
   ['CDL Permit (CLP)', '/how-to-get-a-cdl/#clp'],
   ['CDL Training & ELDT', '/how-to-get-a-cdl/#eldt'],
   ['CDL Skills Test', '/how-to-get-a-cdl/#skills-test'],
+  ['CDL Assessment', '/cdl-assessment/'],
   ['Tuition & Financing', '/tuition-financing/'],
 ]
 
@@ -39,12 +40,6 @@ export const imanSchoolLinks: readonly NavLink[] = [
   ['Privacy Policy', '/privacy-policy/'],
 ]
 
-// Dispatcher training was retired in October 2026 and no freight broker
-// program exists, so the CDL Assessment is the only other offering.
-export const otherTrainingLinks: readonly NavLink[] = [
-  ['CDL Assessment', '/cdl-assessment/'],
-]
-
 export type NavItem =
   | { label: string; path: string }
   | { label: string; links: readonly NavLink[] }
@@ -53,7 +48,6 @@ export const mainNavigation: readonly NavItem[] = [
   { label: 'Home', path: '/' },
   { label: 'CDL Training', links: cdlTrainingLinks },
   { label: 'Truck Driver Career', links: careerLinks },
-  { label: 'Other Training', links: otherTrainingLinks },
   { label: 'Iman School', links: imanSchoolLinks },
   { label: 'Contact Us', path: '/contact-us/' },
 ]

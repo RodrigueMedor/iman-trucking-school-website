@@ -101,3 +101,7 @@ It fits the desktop header down to 1200px and appears as a fourth group in the m
 | CDL Instructor, Careers | `/careers/` (+ `#cdl-instructor`): contact to ask about openings (no openings claimed); federal qualifications from 49 CFR 380.605 |
 | Complaints | `/student-complaints/`: school first, then Florida CIE *for CIE-licensed schools* (IMAN's licensing status is unconfirmed), then FMCSA for ELDT provider concerns |
 | In the News, Fleet Training | **Not added.** There is no IMAN news coverage or confirmed fleet/company training to publish |
+
+## Other Training removed (2026-11-05)
+
+At the owner's request, the "Other Training ▾" dropdown was removed and **CDL Assessment** moved into **CDL Training ▾** (after CDL Skills Test). The header is now: Home · CDL Training ▾ · Truck Driver Career ▾ · Iman School ▾ · Contact Us · Apply Now. The mobile drawer mirrors it. The CDL Assessment page, URL and footer link are unchanged.
