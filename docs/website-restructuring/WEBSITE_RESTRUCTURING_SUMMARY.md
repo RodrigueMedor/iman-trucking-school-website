@@ -264,3 +264,19 @@ Price sheets in the site and the portal are titled by program (for example "BOX 
 3. `202611050004`
 4. Deploy the site
 5. `202611050002`
+6. `202611070001` (see below; applies on its own, before or after the deploy)
+
+Status 2026-11-07: steps 1, 2, 3 and 5 are applied in production; the site is not yet deployed to Hostinger; step 6 is not applied.
+
+### Logistics accounts are kept out of the school (2026-11-07)
+
+In Iman Logistics `employee` and `admin` are real staff roles, but the school treated them as leftovers:
+- `handle_iman_auth_user` gave every Logistics account a `cdl_users` row with role `student` and a `cdl_students` row.
+- `POST /api/me/student-account` turned any `employee` or `admin` account that signed in to the school site into a student, which would lock that person out of Logistics.
+
+**Fix:**
+- `supabase/migrations/202611070001_logistics_accounts_not_students.sql`: an untagged `employee` or `admin` profile keeps only its profile row. Tagged school sign-ups and accounts with a school role in `app_metadata` are unchanged.
+- `shared/studentAccount.mjs` (used by the repair endpoint): converts an account with no profile, or an `employee` account Logistics did not create, and never `admin` or any other role. Logistics has no public sign-up; its super admin creates every staff account and logs `user.create` in `audit_logs`, which is how the endpoint recognises them. Untagged school sign-ups from the current live site (main does not send the tag) are still converted on first sign-in.
+- Tests: `tests/student-account.test.ts`, and `supabase/tests/school_signup.sql` now also checks that Logistics employees and admins get no school records.
+
+Every `employee` account in production on 2026-11-07 (6) is a school sign-up made before the tag, since Logistics had created none. Their existing school records are left as they are.

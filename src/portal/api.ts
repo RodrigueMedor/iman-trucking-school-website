@@ -435,8 +435,9 @@ export async function authedFetch<T = unknown>(path: string, init: RequestInit =
 }
 
 /**
- * Asks the API server to turn an account with a legacy role (or no profile)
- * into a student account. Staff and student accounts are left unchanged.
+ * Asks the API server to turn a school sign-up that has no profile or the
+ * Logistics app's default 'employee' role into a student account. Accounts
+ * the Logistics back office created, staff and students are left unchanged.
  */
 export function setUpStudentAccount() {
   return authedFetch<{ role: string; repaired: boolean }>('/api/me/student-account', { method: 'POST', body: '{}' })

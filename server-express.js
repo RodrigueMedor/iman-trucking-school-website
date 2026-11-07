@@ -14,6 +14,7 @@ import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptTe
 import { decryptBytes, decryptText, encryptBytes, encryptText, EVIDENCE_RETENTION_DAYS, evidenceDue, identityKey } from './shared/identityCrypto.mjs'
 import { DOCUMENT_TYPES, IDENTITY_CONSENT_VERSION, REDACT_AFTER_DAYS, dueForRedaction, studentReason, verificationOutcome } from './shared/identity.mjs'
 import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionPaymentAmount } from './shared/tuition.mjs'
+import { PORTAL_ROLES, studentAccountDecision } from './shared/studentAccount.mjs'
 
 dotenv.config()
 
@@ -1897,15 +1898,26 @@ app.patch('/api/me/student', studentOnly, async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
-// Accounts created before roles were locked down can carry a legacy role
-// ('admin', 'employee') or have no profile at all. Neither has staff access,
-// so when such an account signs in to the student portal it is turned into
-// the student account the portal expects. Staff and students are untouched.
+// A school sign-up can land with no profile, or as 'employee' because the
+// Iman Logistics app's trigger (same database) creates every profile that
+// way. When such an account signs in to the student portal it is turned into
+// the student account the portal expects. Accounts the Logistics back office
+// created, and every other role, are never changed: see
+// shared/studentAccount.mjs.
 // ---------------------------------------------------------------------------
 
-const PORTAL_ROLES = new Set(['student', 'super_admin', 'instructor'])
 // The only account allowed to be super admin (also enforced in the database).
 const SUPER_ADMIN_EMAIL = 'info@imanlogistics.com'
+
+async function createdByLogistics(userId) {
+  const { data, error } = await supabase.from('audit_logs').select('id')
+    .eq('action', 'user.create').eq('entity_type', 'profiles').eq('entity_id', userId).limit(1)
+  // audit_logs belongs to the Logistics app; a database without it has no
+  // Logistics accounts.
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return false
+  if (error) throw error
+  return (data || []).length > 0
+}
 
 app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => {
   try {
@@ -1920,6 +1932,14 @@ app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => 
     if (userError || !found?.user) throw userError || new Error('Auth user not found')
     const user = found.user
     const meta = user.user_metadata || {}
+    const decision = studentAccountDecision({
+      role: profile?.role ?? null,
+      createdByLogistics: profile?.role === 'employee' ? await createdByLogistics(user.id) : false,
+    })
+    if (decision !== 'convert') {
+      console.info(`Left account ${user.id} (role ${profile?.role}) unchanged: it is not a school account.`)
+      return res.status(409).json({ error: 'This account is not a student account. Please contact admissions.' })
+    }
     const verified = Boolean(user.email_confirmed_at)
     const email = user.email || req.user.email
     const localPart = email.split('@')[0] || 'Student'
