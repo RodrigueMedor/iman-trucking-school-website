@@ -266,7 +266,7 @@ Price sheets in the site and the portal are titled by program (for example "BOX 
 5. `202611050002`
 6. `202611070001` (see below; applies on its own, before or after the deploy)
 
-Status 2026-11-07: steps 1, 2, 3 and 5 are applied in production; the site is not yet deployed to Hostinger; step 6 is not applied.
+Status 2026-11-07: steps 1, 2, 3 and 5 are applied in production; the site is not yet deployed to Hostinger; step 6 is applied (2026-11-07).
 
 ### Logistics accounts are kept out of the school (2026-11-07)
 
