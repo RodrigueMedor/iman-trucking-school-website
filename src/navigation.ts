@@ -43,31 +43,94 @@ export const careerLinks: readonly NavLink[] = [
 
 // IMAN's counterpart to the reference site's school menu. Fleet training and
 // news are added once IMAN confirms it offers them / has coverage.
-export const imanSchoolLinks: readonly NavLink[] = [
-  ['About Us', '/about-us/'],
-  ['Choosing a CDL School', '/choosing-a-cdl-school/'],
-  ['Graduate Testimonials', '/testimonials/'],
-  ['School Gallery', '/gallery/'],
-  ['Career Services & Job Placement', '/cdl-jobs/#career-services'],
-  ['Orlando Training Center', '/cdl-training-program-orlando-florida/'],
-  ['ELDT Credit Transfer', '/eldt-credit-transfer/'],
-  ['Graduate Verification', '/graduate-verification/'],
-  ['Careers', '/careers/'],
-  ['CDL Instructor Requirements', '/careers/#cdl-instructor'],
-  ['Student Complaints', '/student-complaints/'],
-  ['Student Payments', '/payment/'],
-  ['Privacy Policy', '/privacy-policy/'],
+export const imanSchoolGroups: readonly NavGroup[] = [
+  {
+    heading: 'About Iman',
+    links: [
+      ['About Us', '/about-us/'],
+      ['Orlando Training Center', '/cdl-training-program-orlando-florida/'],
+      ['Graduate Testimonials', '/testimonials/'],
+      ['School Gallery', '/gallery/'],
+      ['Choosing a CDL School', '/choosing-a-cdl-school/'],
+      ['Privacy Policy', '/privacy-policy/'],
+    ],
+  },
+  {
+    heading: 'Students & graduates',
+    links: [
+      ['Student Payments', '/payment/'],
+      ['Career Services & Job Placement', '/cdl-jobs/#career-services'],
+      ['ELDT Credit Transfer', '/eldt-credit-transfer/'],
+      ['Graduate Verification', '/graduate-verification/'],
+      ['Student Complaints', '/student-complaints/'],
+    ],
+  },
+  {
+    heading: 'Work with Iman',
+    links: [
+      ['Careers', '/careers/'],
+      ['CDL Instructor Requirements', '/careers/#cdl-instructor'],
+    ],
+  },
 ]
+
+export const imanSchoolLinks: readonly NavLink[] = imanSchoolGroups.flatMap(group => group.links)
+
+// One-line summaries shown under the main links in the desktop menu. Each is
+// taken from that page's own description (src/config/seo.ts).
+export const navDescriptions: Record<string, string> = {
+  '/cdl-training/': 'Classroom, range and road training',
+  '/class-b-cdl-training/': 'What a Class B license covers',
+  '/box-truck-training/': 'Box trucks that need no CDL',
+  '/hotshot-training/': 'For CDL and non-CDL drivers',
+  '/cdl-assessment/': 'Online test plus in-person evaluation',
+  '/tuition-financing/': 'Tuition, housing and ways to pay',
+  '/cdl-jobs/': 'Career paths and student support',
+  '/truck-driver-pay-florida/': 'Florida and Orlando wage data',
+  '/truck-driving-career-benefits/': 'Job outlook and what to consider',
+}
+
+/** The highlighted card beside a menu's links. */
+export type NavFeature = { eyebrow: string; title: string; body: string; action: NavLink }
 
 export type NavItem =
   | { label: string; path: string }
-  | { label: string; links: readonly NavLink[]; groups?: readonly NavGroup[] }
+  | { label: string; links: readonly NavLink[]; groups?: readonly NavGroup[]; feature?: NavFeature }
 
 export const mainNavigation: readonly NavItem[] = [
   { label: 'Home', path: '/' },
-  { label: 'CDL Training', links: cdlTrainingLinks, groups: cdlTrainingGroups },
-  { label: 'Truck Driver Career', links: careerLinks },
-  { label: 'Iman School', links: imanSchoolLinks },
+  {
+    label: 'CDL Training',
+    links: cdlTrainingLinks,
+    groups: cdlTrainingGroups,
+    feature: {
+      eyebrow: 'Start your CDL',
+      title: 'Ready to get behind the wheel?',
+      body: 'Apply online, and our admissions team guides you from the start.',
+      action: ['Apply Now', APPLY_PATH],
+    },
+  },
+  {
+    label: 'Truck Driver Career',
+    links: careerLinks,
+    feature: {
+      eyebrow: 'Career services',
+      title: 'Plan the road after training',
+      body: 'See the career paths open to new Class A drivers and the support Iman offers students.',
+      action: ['Explore career services', '/cdl-jobs/#career-services'],
+    },
+  },
+  {
+    label: 'Iman School',
+    links: imanSchoolLinks,
+    groups: imanSchoolGroups,
+    feature: {
+      eyebrow: 'Visit us',
+      title: 'Our training center',
+      body: '21902 State Road 46, Mount Dora, Florida, serving Orlando and Central Florida.',
+      action: ['Contact admissions', '/contact-us/'],
+    },
+  },
   { label: 'Contact Us', path: '/contact-us/' },
 ]
 
