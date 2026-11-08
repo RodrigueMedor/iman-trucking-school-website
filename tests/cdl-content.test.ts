@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { APPLY_PATH, careerLinks, cdlTrainingGroups, cdlTrainingLinks, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, pageTitles } from '../src/navigation'
+import { APPLY_PATH, careerLinks, cdlTrainingGroups, cdlTrainingLinks, imanSchoolGroups, imanSchoolLinks, footerSchoolLinks, footerTrainingLinks, mainNavigation, navDescriptions, pageTitles } from '../src/navigation'
 import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, pageDescriptions, pageMeta } from '../src/config/seo'
 import { cdlFaq, faqStructuredData } from '../src/config/cdlFaq'
 import { pageContent } from '../src/components/InternalPage'
@@ -78,6 +78,15 @@ describe('navigation', () => {
     expect(cdlTrainingGroups[0].links.map(([label]) => label)).toEqual(['Class A CDL Training', 'Class B CDL Training', 'Box Truck Training (Non-CDL)', 'Hotshot Training', 'English Language Proficiency (ELP)', 'Tuition & Financing'])
     const paths = cdlTrainingLinks.map(([, path]) => path)
     expect(new Set(paths).size).toBe(paths.length)
+  })
+
+  it('groups the Iman School menu and only describes links that are in a menu', () => {
+    expect(imanSchoolGroups.map(group => group.heading)).toEqual(['About Iman', 'Students & graduates', 'Work with Iman'])
+    const menuPaths = new Set(mainNavigation.flatMap(item => ('links' in item ? item.links.map(([, path]) => path) : [])))
+    for (const path of Object.keys(navDescriptions)) expect(menuPaths.has(path), path).toBe(true)
+    for (const item of mainNavigation) {
+      if ('feature' in item && item.feature) expect(item.feature.action[1].length, item.label).toBeGreaterThan(0)
+    }
   })
 
   it('gives every guide section a unique anchor', () => {

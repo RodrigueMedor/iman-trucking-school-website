@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   Accordion,
   AccordionDetails,
@@ -6,18 +6,33 @@ import {
   AppBar,
   Box,
   Button,
+  ClickAwayListener,
   Container,
   Divider,
   Drawer,
   IconButton,
-  ListSubheader,
   Menu,
   MenuItem,
+  Paper,
+  Popper,
   Stack,
   Toolbar,
   Tooltip,
   Typography,
 } from '@mui/material'
+import { keyframes } from '@mui/material/styles'
+import type { SvgIconComponent } from '@mui/icons-material'
+import AirportShuttleRoundedIcon from '@mui/icons-material/AirportShuttleRounded'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded'
+import PaidRoundedIcon from '@mui/icons-material/PaidRounded'
+import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded'
+import RvHookupRoundedIcon from '@mui/icons-material/RvHookupRounded'
+import TranslateRoundedIcon from '@mui/icons-material/TranslateRounded'
+import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded'
+import WorkRoundedIcon from '@mui/icons-material/WorkRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
@@ -33,7 +48,7 @@ import XIcon from '@mui/icons-material/X'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { homeForRole, isStaffRole } from '../lib/adminAuth'
-import { APPLY_PATH, mainNavigation, type NavGroup, type NavLink } from '../navigation'
+import { APPLY_PATH, mainNavigation, navDescriptions, type NavFeature, type NavGroup, type NavItem, type NavLink } from '../navigation'
 
 /** A nav link is current when its page (ignoring any #section) is open. */
 const basePath = (path: string) => path.split('#')[0]
@@ -152,28 +167,214 @@ function LanguageSelector({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function DesktopMenu({ label, links, groups }: { label: string; links: readonly NavLink[]; groups?: readonly NavGroup[] }) {
-  const [anchor, setAnchor] = useState<null | HTMLElement>(null)
-  const { pathname } = useLocation()
+const NAV_ICONS: Record<string, SvgIconComponent> = {
+  '/cdl-training/': LocalShippingRoundedIcon,
+  '/class-b-cdl-training/': AirportShuttleRoundedIcon,
+  '/box-truck-training/': Inventory2RoundedIcon,
+  '/hotshot-training/': RvHookupRoundedIcon,
+  '/cdl-assessment/': TranslateRoundedIcon,
+  '/tuition-financing/': PaymentsRoundedIcon,
+  '/cdl-jobs/': WorkRoundedIcon,
+  '/truck-driver-pay-florida/': PaidRoundedIcon,
+  '/truck-driving-career-benefits/': TrendingUpRoundedIcon,
+}
+
+const panelIn = keyframes`
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+`
+
+const navInk = '#08085f'
+const hoverSurface = '#f4f5fb'
+
+type MenuItemData = Extract<NavItem, { links: readonly NavLink[] }>
+
+function MenuColumn({ group, isCurrent, onNavigate }: { group: NavGroup; isCurrent: (path: string) => boolean; onNavigate: () => void }) {
+  const rich = group.links.some(([, path]) => navDescriptions[path])
+  return (
+    <Box sx={{ minWidth: rich ? 288 : 216 }}>
+      {group.heading && (
+        <Typography
+          component="p"
+          sx={{ px: 1.25, pb: 1, mb: 1, borderBottom: '1px solid rgba(8,8,95,.08)', color: '#6a6d92', fontSize: '.68rem', fontWeight: 800, letterSpacing: '.12em', textTransform: 'uppercase' }}
+        >
+          {group.heading}
+        </Typography>
+      )}
+      <Stack component="ul" spacing={rich ? 0.25 : 0} sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        {group.links.map(([itemLabel, path]) => {
+          const current = isCurrent(path)
+          const Icon = NAV_ICONS[path]
+          const description = navDescriptions[path]
+          return (
+            <li key={path}>
+              <Box
+                component={RouterLink}
+                to={path}
+                onClick={onNavigate}
+                aria-current={current ? 'page' : undefined}
+                sx={{
+                  display: 'flex',
+                  alignItems: rich ? 'flex-start' : 'center',
+                  gap: 1.5,
+                  px: 1.25,
+                  py: rich ? 1.1 : 0.85,
+                  borderRadius: '10px',
+                  color: current ? 'secondary.main' : rich ? navInk : '#2b2d63',
+                  textDecoration: 'none',
+                  outline: 'none',
+                  transition: 'background-color .15s ease, color .15s ease',
+                  '& .nav-icon': { transition: 'background-color .15s ease, color .15s ease' },
+                  '& .nav-arrow': { opacity: 0, transform: 'translateX(-4px)', transition: 'opacity .15s ease, transform .15s ease' },
+                  '&:hover, &:focus-visible': {
+                    bgcolor: hoverSurface,
+                    color: 'secondary.main',
+                    '& .nav-icon': { bgcolor: 'secondary.main', color: 'white' },
+                    '& .nav-arrow': { opacity: 1, transform: 'translateX(0)' },
+                  },
+                  '&:focus-visible': { boxShadow: '0 0 0 2px rgba(239,48,38,.45)' },
+                }}
+              >
+                {rich && Icon && (
+                  <Box
+                    className="nav-icon"
+                    sx={{
+                      display: 'grid',
+                      placeItems: 'center',
+                      flexShrink: 0,
+                      width: 38,
+                      height: 38,
+                      borderRadius: '10px',
+                      bgcolor: current ? 'secondary.main' : 'rgba(239,48,38,.08)',
+                      color: current ? 'white' : 'secondary.main',
+                    }}
+                  >
+                    <Icon sx={{ fontSize: 20 }} />
+                  </Box>
+                )}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography component="span" sx={{ display: 'block', fontSize: rich ? '.9rem' : '.86rem', fontWeight: rich ? 750 : 650, lineHeight: 1.35, color: 'inherit' }}>
+                    {itemLabel}
+                  </Typography>
+                  {description && (
+                    <Typography component="span" sx={{ display: 'block', mt: 0.25, fontSize: '.78rem', lineHeight: 1.4, color: '#6a6d92' }}>
+                      {description}
+                    </Typography>
+                  )}
+                </Box>
+                {!rich && <ChevronRightRoundedIcon className="nav-arrow" sx={{ fontSize: 18 }} />}
+              </Box>
+            </li>
+          )
+        })}
+      </Stack>
+    </Box>
+  )
+}
+
+function MenuFeature({ feature, onNavigate }: { feature: NavFeature; onNavigate: () => void }) {
+  const [actionLabel, actionPath] = feature.action
+  return (
+    <Stack
+      sx={{
+        position: 'relative',
+        overflow: 'hidden',
+        alignSelf: 'flex-start',
+        width: 252,
+        p: 2.75,
+        borderRadius: '14px',
+        color: 'white',
+        background: 'linear-gradient(155deg, #12127a 0%, #08085f 55%, #05053f 100%)',
+        '&::before': { content: '""', position: 'absolute', top: 0, left: 22, width: 36, height: 4, borderRadius: '0 0 4px 4px', bgcolor: 'secondary.main' },
+        '&::after': { content: '""', position: 'absolute', right: -60, bottom: -60, width: 170, height: 170, borderRadius: '50%', border: '24px solid rgba(255,255,255,.05)' },
+      }}
+    >
+      <Typography sx={{ color: '#ff8a83', fontSize: '.68rem', fontWeight: 800, letterSpacing: '.12em', textTransform: 'uppercase' }}>
+        {feature.eyebrow}
+      </Typography>
+      <Typography sx={{ mt: 1, fontSize: '1.05rem', fontWeight: 800, lineHeight: 1.3 }}>{feature.title}</Typography>
+      <Typography sx={{ mt: 1, mb: 2.25, fontSize: '.82rem', lineHeight: 1.55, color: 'rgba(255,255,255,.74)' }}>{feature.body}</Typography>
+      <Box sx={{ position: 'relative', zIndex: 1 }}>
+        <Button
+          component={RouterLink}
+          to={actionPath}
+          onClick={onNavigate}
+          variant="contained"
+          color="secondary"
+          size="small"
+          endIcon={<ArrowForwardRoundedIcon />}
+          sx={{ minHeight: 38, px: 1.75, whiteSpace: 'nowrap' }}
+        >
+          {actionLabel}
+        </Button>
+        <Stack
+          component="a"
+          href="tel:8889914776"
+          direction="row"
+          alignItems="center"
+          spacing={0.75}
+          sx={{ mt: 1.75, color: 'rgba(255,255,255,.8)', fontSize: '.8rem', fontWeight: 700, textDecoration: 'none', '&:hover': { color: 'white' } }}
+        >
+          <PhoneRoundedIcon sx={{ fontSize: 16, color: '#ff8a83' }} />
+          <span>(888) 991-4776</span>
+        </Stack>
+      </Box>
+    </Stack>
+  )
+}
+
+/**
+ * A desktop dropdown laid out as a panel of grouped columns. It is a
+ * disclosure (button + region of links), not a modal menu, so the page stays
+ * usable, nothing is pre-highlighted, and it opens on hover, click or keyboard.
+ */
+function DesktopMenu({ item }: { item: MenuItemData }) {
+  const { label, links, groups, feature } = item
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | undefined>(undefined)
+  // A click on a menu the pointer just opened keeps it open; only a menu
+  // opened by click (or keyboard) closes on the next click.
+  const openedByHover = useRef(false)
+  const panelId = useId()
+  const { pathname, hash } = useLocation()
   const active = links.some(([, path]) => pathname === basePath(path))
-  const closeMenu = () => setAnchor(null)
+  const isCurrent = (path: string) => `${pathname}${hash}` === path || (pathname === path && !hash)
+
+  const cancelClose = () => window.clearTimeout(closeTimer.current)
+  const show = (byHover = false) => {
+    cancelClose()
+    if (!open) openedByHover.current = byHover
+    setOpen(true)
+  }
+  const hide = (delay = 150) => { cancelClose(); closeTimer.current = window.setTimeout(() => setOpen(false), delay) }
+  const close = () => { cancelClose(); setOpen(false) }
+  const focusFirstLink = () => window.requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>('a')?.focus())
+
+  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
+  useEffect(() => { setOpen(false) }, [pathname, hash])
 
   return (
-    <Box
-      onMouseLeave={closeMenu}
-      sx={{ display: 'flex', alignSelf: 'stretch', alignItems: 'center' }}
-    >
+    <Box onMouseEnter={() => show(true)} onMouseLeave={() => hide()} sx={{ display: 'flex', alignSelf: 'stretch', alignItems: 'center' }}>
       <Button
+        ref={anchorRef}
         color="inherit"
-        aria-haspopup="menu"
-        aria-expanded={Boolean(anchor)}
-        onClick={(event) => setAnchor(event.currentTarget)}
-        onMouseEnter={(event) => setAnchor(event.currentTarget)}
-        endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: '16px !important' }} />}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={() => {
+          if (open && !openedByHover.current) close()
+          else { openedByHover.current = false; show() }
+        }}
+        onKeyDown={event => {
+          if (event.key === 'ArrowDown') { event.preventDefault(); show(); focusFirstLink() }
+          if (event.key === 'Escape') close()
+        }}
+        endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: '16px !important', transition: 'transform .2s ease', transform: open ? 'rotate(180deg)' : 'none' }} />}
         sx={{
           alignSelf: 'stretch',
           borderRadius: 0,
-          color: active ? 'secondary.main' : '#09095e',
+          color: active || open ? 'secondary.main' : navInk,
           px: 1.55,
           position: 'relative',
           '&::after': {
@@ -183,62 +384,64 @@ function DesktopMenu({ label, links, groups }: { label: string; links: readonly 
             bottom: 0,
             left: 12,
             height: 3,
-            bgcolor: active ? 'secondary.main' : 'transparent',
-            transform: active ? 'scaleX(1)' : 'scaleX(0)',
+            borderRadius: '3px 3px 0 0',
+            bgcolor: 'secondary.main',
+            transform: active || open ? 'scaleX(1)' : 'scaleX(0)',
             transition: 'transform .2s ease',
           },
           '&:hover': { color: 'secondary.main', bgcolor: 'transparent' },
-          '&:hover::after': { bgcolor: 'secondary.main', transform: 'scaleX(1)' },
+          '&:hover::after': { transform: 'scaleX(1)' },
         }}
       >
         {label}
       </Button>
-      <Menu
-        anchorEl={anchor}
-        open={Boolean(anchor)}
-        onClose={closeMenu}
-        MenuListProps={{ onMouseLeave: closeMenu, sx: { py: 0.75 } }}
-        slotProps={{
-          paper: {
-            sx: {
-              mt: 0.25,
-              minWidth: 270,
-              border: '1px solid',
-              borderColor: 'divider',
-              borderTop: '3px solid',
-              borderTopColor: 'secondary.main',
-              borderRadius: '0 0 10px 10px',
-              boxShadow: '0 18px 45px rgba(8,8,87,.16)',
-            },
-          },
-        }}
+      <Popper
+        open={open}
+        anchorEl={anchorRef.current}
+        placement="bottom-start"
+        modifiers={[
+          { name: 'offset', options: { offset: [-16, 10] } },
+          { name: 'preventOverflow', options: { padding: 24 } },
+          { name: 'flip', enabled: false },
+        ]}
+        sx={{ zIndex: theme => theme.zIndex.appBar + 1 }}
       >
-        {(groups ?? [{ heading: '', links }]).flatMap(group => [
-          ...(group.heading ? [<ListSubheader key={`h-${group.heading}`} disableSticky sx={{ px: 2.25, pt: 1, pb: 0.25, lineHeight: 2, color: 'secondary.main', fontSize: '.7rem', fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase' }}>{group.heading}</ListSubheader>] : []),
-          ...group.links.map(([itemLabel, path]) => (
-          <MenuItem
-            key={path}
-            component={RouterLink}
-            to={path}
-            selected={pathname === basePath(path) && !path.includes('#')}
-            onClick={closeMenu}
+        <ClickAwayListener onClickAway={event => { if (!anchorRef.current?.contains(event.target as Node)) close() }}>
+          <Paper
+            ref={panelRef}
+            id={panelId}
+            role="region"
+            aria-label={`${label} menu`}
+            elevation={0}
+            onMouseEnter={() => show(true)}
+            onMouseLeave={() => hide()}
+            onKeyDown={event => {
+              if (event.key === 'Escape') { close(); anchorRef.current?.focus() }
+            }}
+            onBlur={event => {
+              const next = event.relatedTarget as Node | null
+              if (next && !panelRef.current?.contains(next) && !anchorRef.current?.contains(next)) close()
+            }}
             sx={{
-              py: 1.2,
-              px: 2.25,
-              color: '#09095e',
-              fontSize: '.875rem',
-              fontWeight: 700,
-              '&:hover, &.Mui-selected': {
-                color: 'secondary.main',
-                bgcolor: 'rgba(239,48,38,.06)',
-              },
+              position: 'relative',
+              display: 'flex',
+              gap: 3,
+              p: 2.5,
+              borderRadius: '18px',
+              border: '1px solid rgba(8,8,95,.08)',
+              boxShadow: '0 28px 70px rgba(8,8,95,.18), 0 4px 14px rgba(8,8,95,.06)',
+              animation: `${panelIn} .18s ease-out`,
+              // Bridges the gap under the nav so the pointer can reach the panel.
+              '&::before': { content: '""', position: 'absolute', top: -12, left: 0, right: 0, height: 12 },
             }}
           >
-            {itemLabel}
-          </MenuItem>
-        )),
-        ])}
-      </Menu>
+            {(groups ?? [{ heading: '', links }]).map(group => (
+              <MenuColumn key={group.heading || label} group={group} isCurrent={isCurrent} onNavigate={close} />
+            ))}
+            {feature && <MenuFeature feature={feature} onNavigate={close} />}
+          </Paper>
+        </ClickAwayListener>
+      </Popper>
     </Box>
   )
 }
@@ -408,7 +611,7 @@ export function Header() {
               sx={{ display: { xs: 'none', lg: 'flex' }, alignSelf: 'stretch' }}
             >
               {mainNavigation.map(item => {
-                if ('links' in item) return <DesktopMenu key={item.label} label={item.label} links={item.links} groups={item.groups} />
+                if ('links' in item) return <DesktopMenu key={item.label} item={item} />
                 const active = pathname === item.path
                 return (
                   <Button
