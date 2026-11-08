@@ -467,7 +467,8 @@ export function ApplicationWizard({ type }: { type: ApplicationType }) {
               {sessions.map(s => <MenuItem key={s.id} value={s.id}>{s.name} ({formatSessionDate(s.starts_at)} – {formatSessionDate(s.ends_at)})</MenuItem>)}
             </TextField>
             <TextField fullWidth multiline minRows={3} label="Anything you'd like admissions to know? (optional)" value={form.statement}
-              onChange={e => setField('statement')(e.target.value)} sx={{ mt: 3 }} {...err('statement')} />
+              onChange={e => setField('statement')(e.target.value)} sx={{ mt: 3 }} {...err('statement')}
+              helperText={errors.statement ?? 'For example: your driving experience, whether you prefer day, evening or weekend classes, and any questions.'} />
             <Box sx={{ mt: 3 }}>
               <FinancingCallout variant="inline" title="Need Help Paying for CDL Training?" />
             </Box>

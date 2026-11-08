@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { FinancingCallout } from '../../components/financing/FinancingCallout'
 import { getPaymentStatus } from '../../lib/stripe'
 import { downloadAgreement, downloadReceipt, getMyBilling, getMyStudent, openTuitionAccount, PAYMENT_METHOD_LABELS, setTuitionHousing, startTuitionCheckout, toMessage, type BillingSummary, type FeeItem, type SelfPayOption, type TuitionAccount } from '../api'
-import { CdlPricingSheet, sheetMoney } from '../CdlPricingSheet'
+import { CdlPricingSheet, sheetMoney, sheetTitle } from '../CdlPricingSheet'
 import { PayFeeDialog } from '../PayFeeDialog'
 import { formatDate, formatDateTime, PageHeader, SectionCard } from '../ui'
 
@@ -114,7 +114,7 @@ export function BillingPage() {
           {current.deposit_cents > 0 && current.paid_cents === 0 && <Button variant="outlined" size="large" disabled={!student || savingHousing} onClick={() => setChoice({ account: current, kind: 'deposit', label: `Pay ${money(Math.min(current.deposit_cents, remaining), current.currency)} deposit` })}>Pay {money(Math.min(current.deposit_cents, remaining), current.currency)} deposit</Button>}
           <Button variant="contained" color="secondary" size="large" startIcon={<CreditCardRounded />} disabled={!student || savingHousing} onClick={() => setChoice({ account: current, kind: 'full', label: `Pay ${money(remaining, current.currency)}${applied ? '' : ' in full'}` })}>Pay {sheetMoney(remaining, current.currency)}</Button>
         </Stack>
-      return <CdlPricingSheet items={accountItems(current)} housingFeeCents={current.fee_items?.length ? current.housing_fee_cents : 0} currency={current.currency}
+      return <CdlPricingSheet title={sheetTitle(current.course)} items={accountItems(current)} housingFeeCents={current.fee_items?.length ? current.housing_fee_cents : 0} currency={current.currency}
         housingSelected={current.housing_selected} onHousingChange={selected => void changeHousing(current, selected)} busy={savingHousing}
         housingLockedReason={applied || remaining === 0 ? `Housing ${current.housing_selected ? 'is included' : 'is not included'}. A payment has been applied, so contact admissions to change it.` : undefined}
         due={due} action={action} />
@@ -123,7 +123,7 @@ export function BillingPage() {
     const { pricing } = selectedOption
     const total = pricing.totalWithoutHousingCents + (housing ? pricing.housingFeeCents : 0)
     const flexible = selectedOption.course.deposit_cents > 0 || (selectedOption.course.installments_enabled && selectedOption.course.installment_count > 1)
-    return <CdlPricingSheet items={pricing.items} housingFeeCents={pricing.housingFeeCents} currency={pricing.currency}
+    return <CdlPricingSheet title={sheetTitle(selectedOption.course)} items={pricing.items} housingFeeCents={pricing.housingFeeCents} currency={pricing.currency}
       housingSelected={housing} onHousingChange={setHousing} busy={opening}
       courses={billing.payable!.map(item => ({ id: item.courseId, name: item.course.name, detail: `${item.application ? `Application ${item.application.reference_no} · ` : ''}${payPlan(item.course)}`, totalCents: item.pricing.totalWithoutHousingCents }))}
       courseId={selectedOption.courseId} onCourse={setCourseId}

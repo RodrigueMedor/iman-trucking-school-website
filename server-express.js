@@ -6,6 +6,7 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { z } from 'zod'
+import { describeRequestDetails, parseWebsiteRequest, REQUEST_TYPE_LABELS } from './shared/websiteRequests.mjs'
 import PDFDocument from 'pdfkit'
 import { pathToFileURL } from 'node:url'
 import { automaticallyEvaluate, validateResponsesShape } from './shared/elpScoring.mjs'
@@ -13,6 +14,7 @@ import { cleanContact, cleanMessages, cleanText, generateChatReply, transcriptTe
 import { decryptBytes, decryptText, encryptBytes, encryptText, EVIDENCE_RETENTION_DAYS, evidenceDue, identityKey } from './shared/identityCrypto.mjs'
 import { DOCUMENT_TYPES, IDENTITY_CONSENT_VERSION, REDACT_AFTER_DAYS, dueForRedaction, studentReason, verificationOutcome } from './shared/identity.mjs'
 import { coursePricing, installmentSchedule, pendingCheckoutAction, pricingTotal, tuitionPaymentAmount } from './shared/tuition.mjs'
+import { PORTAL_ROLES, studentAccountDecision } from './shared/studentAccount.mjs'
 
 dotenv.config()
 
@@ -446,7 +448,7 @@ app.get('/api/me/billing', requireUser, requireStudent, async (req, res) => {
 })
 
 // Course columns the itemized price is computed from (see coursePricing).
-const COURSE_PRICE_COLUMNS = 'tuition_cents, deposit_cents, installment_count, installments_enabled, training_cents, testing_fee_cents, administrative_fee_cents, materials_fee_cents, housing_fee_cents, currency, pricing_version'
+const COURSE_PRICE_COLUMNS = 'tuition_cents, deposit_cents, installment_count, installments_enabled, training_cents, testing_fee_cents, administrative_fee_cents, materials_fee_cents, housing_fee_cents, currency, pricing_version, training_fee_label'
 
 // Training applications a self-paid tuition account can be linked to.
 // Drafts and rejections are excluded.
@@ -1896,15 +1898,26 @@ app.patch('/api/me/student', studentOnly, async (req, res) => {
 })
 
 // ---------------------------------------------------------------------------
-// Accounts created before roles were locked down can carry a legacy role
-// ('admin', 'employee') or have no profile at all. Neither has staff access,
-// so when such an account signs in to the student portal it is turned into
-// the student account the portal expects. Staff and students are untouched.
+// A school sign-up can land with no profile, or as 'employee' because the
+// Iman Logistics app's trigger (same database) creates every profile that
+// way. When such an account signs in to the student portal it is turned into
+// the student account the portal expects. Accounts the Logistics back office
+// created, and every other role, are never changed: see
+// shared/studentAccount.mjs.
 // ---------------------------------------------------------------------------
 
-const PORTAL_ROLES = new Set(['student', 'super_admin', 'instructor'])
 // The only account allowed to be super admin (also enforced in the database).
 const SUPER_ADMIN_EMAIL = 'info@imanlogistics.com'
+
+async function createdByLogistics(userId) {
+  const { data, error } = await supabase.from('audit_logs').select('id')
+    .eq('action', 'user.create').eq('entity_type', 'profiles').eq('entity_id', userId).limit(1)
+  // audit_logs belongs to the Logistics app; a database without it has no
+  // Logistics accounts.
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return false
+  if (error) throw error
+  return (data || []).length > 0
+}
 
 app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => {
   try {
@@ -1919,6 +1932,14 @@ app.post('/api/me/student-account', requireUser, rateLimit, async (req, res) => 
     if (userError || !found?.user) throw userError || new Error('Auth user not found')
     const user = found.user
     const meta = user.user_metadata || {}
+    const decision = studentAccountDecision({
+      role: profile?.role ?? null,
+      createdByLogistics: profile?.role === 'employee' ? await createdByLogistics(user.id) : false,
+    })
+    if (decision !== 'convert') {
+      console.info(`Left account ${user.id} (role ${profile?.role}) unchanged: it is not a school account.`)
+      return res.status(409).json({ error: 'This account is not a student account. Please contact admissions.' })
+    }
     const verified = Boolean(user.email_confirmed_at)
     const email = user.email || req.user.email
     const localPart = email.split('@')[0] || 'Student'
@@ -2122,7 +2143,7 @@ app.get('/api/admin/identity-verifications/:id/evidence/:kind', superAdminOnly, 
     if (!res.headersSent) res.status(500).json({ error: 'Could not load the image.' })
   }
 })
-const COURSE_PRICING_COLUMNS = `id, code, name, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
+const COURSE_PRICING_COLUMNS = `id, code, name, description, active, installments_enabled, updated_at, pricing_effective_at, ${COURSE_PRICE_COLUMNS}`
 
 app.get('/api/admin/courses', superAdminOnly, async (req, res) => {
   try {
@@ -2187,6 +2208,112 @@ app.patch('/api/admin/courses/:id/pricing', superAdminOnly, async (req, res) => 
   } catch (error) {
     console.error('Error updating course pricing:', error)
     res.status(500).json({ error: 'Could not update course pricing.' })
+  }
+})
+
+// Course catalog: super administrators add programs and control what the
+// website, application and checkout offer. Prices are set separately above
+// so every price change stays versioned.
+const courseDetailsSchema = z.object({
+  name: z.string().trim().min(2, 'Enter a course name.').max(120),
+  description: z.string().trim().max(500).optional().default(''),
+  trainingFeeLabel: z.string().trim().max(80).optional().default(''),
+  active: z.boolean(),
+}).strict()
+const newCourseSchema = courseDetailsSchema.extend({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9-]{1,29}$/, 'Use 2-30 letters, numbers or dashes for the code.'),
+}).strict()
+
+const courseDetailsRow = input => ({
+  name: input.name, description: input.description || null, training_fee_label: input.trainingFeeLabel || null,
+  active: input.active, updated_at: new Date().toISOString(),
+})
+
+app.post('/api/admin/courses', superAdminOnly, async (req, res) => {
+  try {
+    const parsed = newCourseSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the course details.' })
+    // New courses start at $0; set the price in the pricing dialog.
+    const { data, error } = await supabase.from('cdl_courses').insert({ code: parsed.data.code, ...courseDetailsRow(parsed.data), pricing_updated_by: req.user.id })
+      .select(COURSE_PRICING_COLUMNS).single()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A course with this code already exists.' })
+    if (error) throw error
+    console.info(`Course created by ${req.user.email}: ${data.code} active=${data.active}`)
+    res.status(201).json({ course: data })
+  } catch (error) {
+    console.error('Error creating course:', error)
+    res.status(500).json({ error: 'Could not create the course.' })
+  }
+})
+
+app.patch('/api/admin/courses/:id', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid course id.' })
+    const parsed = courseDetailsSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the course details.' })
+    const { data, error } = await supabase.from('cdl_courses').update(courseDetailsRow(parsed.data))
+      .eq('id', req.params.id).select(COURSE_PRICING_COLUMNS).maybeSingle()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Course not found.' })
+    console.info(`Course updated by ${req.user.email}: ${data.code} active=${data.active} name="${data.name}"`)
+    res.json({ course: data })
+  } catch (error) {
+    console.error('Error updating course:', error)
+    res.status(500).json({ error: 'Could not update the course.' })
+  }
+})
+
+// Start sessions shown in the training application. Sessions are closed,
+// never deleted, because applications reference them.
+const SESSION_COLUMNS = 'id, name, starts_at, ends_at, open, updated_at'
+const sessionSchema = z.object({
+  name: z.string().trim().min(2, 'Enter a session name.').max(120),
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a start date.'),
+  endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose an end date.'),
+  open: z.boolean(),
+}).strict().refine(input => input.endsOn >= input.startsOn, { message: 'The end date must be on or after the start date.', path: ['endsOn'] })
+const sessionRow = input => ({
+  name: input.name, starts_at: `${input.startsOn}T00:00:00Z`, ends_at: `${input.endsOn}T23:59:59Z`, open: input.open, updated_at: new Date().toISOString(),
+})
+
+app.get('/api/admin/sessions', superAdminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('cdl_academic_sessions').select(SESSION_COLUMNS).order('starts_at', { ascending: false })
+    if (error) throw error
+    res.json({ sessions: data || [] })
+  } catch (error) {
+    console.error('Error loading sessions:', error)
+    res.status(500).json({ error: 'Could not load start sessions.' })
+  }
+})
+
+app.post('/api/admin/sessions', superAdminOnly, async (req, res) => {
+  try {
+    const parsed = sessionSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the session details.' })
+    const { data, error } = await supabase.from('cdl_academic_sessions').insert(sessionRow(parsed.data)).select(SESSION_COLUMNS).single()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A session with this name already exists.' })
+    if (error) throw error
+    res.status(201).json({ session: data })
+  } catch (error) {
+    console.error('Error creating session:', error)
+    res.status(500).json({ error: 'Could not create the session.' })
+  }
+})
+
+app.patch('/api/admin/sessions/:id', superAdminOnly, async (req, res) => {
+  try {
+    if (!uuidSchema.safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid session id.' })
+    const parsed = sessionSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the session details.' })
+    const { data, error } = await supabase.from('cdl_academic_sessions').update(sessionRow(parsed.data)).eq('id', req.params.id).select(SESSION_COLUMNS).maybeSingle()
+    if (error?.code === '23505') return res.status(409).json({ error: 'A session with this name already exists.' })
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Session not found.' })
+    res.json({ session: data })
+  } catch (error) {
+    console.error('Error updating session:', error)
+    res.status(500).json({ error: 'Could not update the session.' })
   }
 })
 
@@ -2826,6 +2953,92 @@ async function sendChatAlert({ subject, html, text, sms }) {
   }
   return delivered
 }
+
+// ---------------------------------------------------------------------------
+// Website requests (graduate verification, student complaints, careers and
+// prior ELDT training). Public, so limited per IP; saved with the service
+// role (anon cannot insert) and triaged in Admin → Website requests.
+// ---------------------------------------------------------------------------
+
+const WEBSITE_REQUEST_LIMIT = 5
+const WEBSITE_REQUEST_WINDOW_MS = 10 * 60 * 1000
+const websiteRequestBuckets = new Map()
+
+function websiteRequestRateLimit(req, res, next) {
+  const now = Date.now()
+  const key = clientIp(req)
+  const bucket = websiteRequestBuckets.get(key)
+  if (!bucket || now - bucket.start >= WEBSITE_REQUEST_WINDOW_MS) {
+    websiteRequestBuckets.set(key, { start: now, count: 1 })
+    if (websiteRequestBuckets.size > 10000) {
+      for (const [k, value] of websiteRequestBuckets) if (now - value.start >= WEBSITE_REQUEST_WINDOW_MS) websiteRequestBuckets.delete(k)
+    }
+    return next()
+  }
+  bucket.count += 1
+  if (bucket.count > WEBSITE_REQUEST_LIMIT) return res.status(429).json({ error: 'Too many requests. Please wait a few minutes or call (888) 991-4776.' })
+  next()
+}
+
+function websiteRequestEmailHtml(row) {
+  const rows = [
+    ['Reference', row.reference_no], ['Type', REQUEST_TYPE_LABELS[row.request_type]], ['Name', row.full_name], ['Email', row.email], ['Phone', row.phone || '—'],
+    ...describeRequestDetails(row.request_type, row.details),
+  ].map(([label, value]) => `<p style="margin: 6px 0;"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`).join('')
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #08085f;">New website request: ${escapeHtml(REQUEST_TYPE_LABELS[row.request_type])}</h2>
+      <div style="background: #f5f7fb; padding: 16px 20px; border-radius: 8px; margin: 16px 0;">${rows}</div>
+      <p><strong>Message</strong><br>${escapeHtml(row.message).replace(/\n/g, '<br>')}</p>
+      <p style="color: #5d6a78;">Track and update this request in Admin → Website requests.</p>
+    </div>`
+}
+
+app.post('/api/website-requests', websiteRequestRateLimit, async (req, res) => {
+  try {
+    // Visitors get a plain-language fallback; operators see the cause in the logs.
+    if (!supabase) {
+      console.error('Website request rejected:', missingDatabaseError)
+      return res.status(503).json({ error: 'Online requests are temporarily unavailable. Please email info@imanlogistics.com or call (888) 991-4776.' })
+    }
+    const parsed = parseWebsiteRequest(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Check the form and try again.', fields: parsed.error.issues.map(issue => issue.path.join('.')) })
+    }
+    const input = parsed.data
+    // Spam trap: pretend success so bots learn nothing.
+    if (input.website) return res.status(201).json({ referenceNo: null })
+
+    // A double click or resend within a few minutes returns the first request.
+    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data: recent } = await supabase.from('cdl_website_requests').select('reference_no, message')
+      .eq('request_type', input.requestType).eq('email', input.email).gte('created_at', since).order('created_at', { ascending: false }).limit(5)
+    const duplicate = (recent || []).find(row => row.message === input.message)
+    if (duplicate) return res.status(200).json({ referenceNo: duplicate.reference_no })
+
+    const { data: row, error } = await supabase.from('cdl_website_requests').insert({
+      request_type: input.requestType, full_name: input.fullName, email: input.email, phone: input.phone || null,
+      message: input.message, details: input.details, source_page: input.sourcePage || null,
+    }).select('id, reference_no, request_type, full_name, email, phone, message, details').single()
+    if (error) throw error
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: emailFrom, to: admissionsEmail, replyTo: row.email,
+          subject: `${REQUEST_TYPE_LABELS[row.request_type]} request ${row.reference_no} from ${row.full_name}`,
+          html: websiteRequestEmailHtml(row),
+        })
+      } catch (emailError) {
+        console.error('Website request saved but the admissions email failed:', emailError?.message)
+      }
+    }
+    res.status(201).json({ referenceNo: row.reference_no })
+  } catch (error) {
+    console.error('Error saving website request:', error)
+    res.status(500).json({ error: 'We could not send your request. Please try again or call (888) 991-4776.' })
+  }
+})
 
 app.post('/api/chat', chatRateLimit, async (req, res) => {
   const body = req.body || {}

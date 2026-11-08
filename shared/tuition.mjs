@@ -57,7 +57,10 @@ const cents = value => {
 // Fee snapshot and totals for a course row. The training price is always
 // listed; other fees only when they are charged.
 export function coursePricing(course) {
-  const items = FEE_ITEMS.map(({ code, column, label }) => ({ code, label, amount_cents: cents(course[column]) }))
+  // A course can name its training line (e.g. a non-CDL program); the
+  // other fee labels are fixed.
+  const trainingLabel = typeof course.training_fee_label === 'string' && course.training_fee_label.trim() ? course.training_fee_label.trim() : null
+  const items = FEE_ITEMS.map(({ code, column, label }) => ({ code, label: code === 'training' && trainingLabel ? trainingLabel : label, amount_cents: cents(course[column]) }))
     .filter(item => item.code === 'training' || item.amount_cents > 0)
   const housingFeeCents = cents(course.housing_fee_cents)
   const totalWithoutHousingCents = items.reduce((sum, item) => sum + item.amount_cents, 0)

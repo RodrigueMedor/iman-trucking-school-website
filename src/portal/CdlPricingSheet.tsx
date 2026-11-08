@@ -19,19 +19,26 @@ export function sheetMoney(cents: number, currency = 'usd') {
 
 export type SheetCourse = { id: string; name: string; detail: string; totalCents: number }
 
+/** Sheet header for a course: "CDL TRAINING" for CDL courses, else the program name (e.g. "BOX TRUCK TRAINING"). */
+export function sheetTitle(course?: { code?: string | null; name?: string | null } | null) {
+  if (!course?.name || !course.code || course.code.startsWith('CDL-')) return 'CDL TRAINING'
+  return course.name.replace(/\s*\(.*?\)\s*/g, ' ').trim().toUpperCase()
+}
+
 /**
  * The CDL Training "Special Pricing & Fee Breakdown" sheet plus the student's
  * own total due. Every amount comes from the server; this component only
  * displays them and reports the housing choice.
  */
 export function CdlPricingSheet({
-  items, housingFeeCents, currency = 'usd', housingSelected, onHousingChange, housingLockedReason, busy,
+  items, housingFeeCents, currency = 'usd', housingSelected, onHousingChange, housingLockedReason, busy, title = 'CDL TRAINING',
   courses, courseId, onCourse, due, action, note,
 }: {
-  items: FeeItem[]; housingFeeCents: number; currency?: string
-  housingSelected: boolean; onHousingChange: (selected: boolean) => void; housingLockedReason?: string; busy?: boolean
+  items: FeeItem[]; housingFeeCents: number; currency?: string; title?: string
+  housingSelected?: boolean; onHousingChange?: (selected: boolean) => void; housingLockedReason?: string; busy?: boolean
   courses?: SheetCourse[]; courseId?: string; onCourse?: (id: string) => void
-  due: { label: string; amountCents: number; caption?: string }
+  /** Omit for a read-only price list (public tuition page): no checkout panel. */
+  due?: { label: string; amountCents: number; caption?: string }
   action?: ReactNode; note?: ReactNode
 }) {
   const base = items.reduce((sum, item) => sum + item.amount_cents, 0)
@@ -43,7 +50,7 @@ export function CdlPricingSheet({
       <Stack direction="row" alignItems="center" spacing={{ xs: 2, md: 4 }}>
         <Box component="img" src="/images/iman-logo.png" alt="IMAN Trucking School" sx={{ height: { xs: 52, md: 84 }, width: 'auto', flexShrink: 0, display: 'block' }} />
         <Box minWidth={0}>
-          <Typography id="cdl-sheet-title" component="h2" fontWeight={950} lineHeight={1} letterSpacing="-.01em" sx={{ fontSize: { xs: 30, sm: 40, md: 52 } }}>CDL TRAINING</Typography>
+          <Typography id="cdl-sheet-title" component="h2" fontWeight={950} lineHeight={1} letterSpacing="-.01em" sx={{ fontSize: title.length > 14 ? { xs: 22, sm: 32, md: 44 } : { xs: 30, sm: 40, md: 52 }, overflowWrap: 'anywhere' }}>{title}</Typography>
           <Typography fontWeight={600} sx={{ fontSize: { xs: 15, md: 20 }, mt: 1 }}>Special Pricing &amp; Fee Breakdown</Typography>
         </Box>
       </Stack>
@@ -81,7 +88,7 @@ export function CdlPricingSheet({
         </Stack>
       </Box>
 
-      <Paper elevation={0} sx={{ mt: { xs: 2, md: 3 }, borderRadius: 3, p: { xs: 2.5, md: 3.5 }, bgcolor: 'white', border: `2px solid ${SHEET_NAVY}` }}>
+      {due && <Paper elevation={0} sx={{ mt: { xs: 2, md: 3 }, borderRadius: 3, p: { xs: 2.5, md: 3.5 }, bgcolor: 'white', border: `2px solid ${SHEET_NAVY}` }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr auto' }, gap: { xs: 2.5, md: 4 }, alignItems: 'center' }}>
           <Stack spacing={2} minWidth={0}>
             {courses && courses.length > 1 && <Box>
@@ -100,7 +107,7 @@ export function CdlPricingSheet({
             </Box>}
             {housingOffered && <Box>
               <FormControlLabel
-                control={<Checkbox checked={housingSelected} onChange={event => onHousingChange(event.target.checked)} disabled={busy || !!housingLockedReason} sx={{ color: SHEET_NAVY, '&.Mui-checked': { color: SHEET_RED }, p: 1.25 }} />}
+                control={<Checkbox checked={Boolean(housingSelected)} onChange={event => onHousingChange?.(event.target.checked)} disabled={busy || !!housingLockedReason} sx={{ color: SHEET_NAVY, '&.Mui-checked': { color: SHEET_RED }, p: 1.25 }} />}
                 label={<Typography fontWeight={900} color={SHEET_NAVY} sx={{ fontSize: { xs: 16, md: 18 } }}>Add Optional Housing (+{money(housingFeeCents)})</Typography>}
                 sx={{ m: 0, ml: -1.25 }}
               />
@@ -119,7 +126,7 @@ export function CdlPricingSheet({
         {action && <Stack direction="row" spacing={0.75} alignItems="center" mt={2} sx={{ color: 'text.secondary' }}>
           <LockRounded fontSize="small" /><Typography variant="caption" fontWeight={700}>Secure checkout by Stripe. IMAN never sees or stores your card details. You'll sign the tuition payment agreement before paying.</Typography>
         </Stack>}
-      </Paper>
+      </Paper>}
 
       <Stack direction="row" justifyContent="space-between" gap={2} mt={2.5} sx={{ color: '#6B6F80' }}>
         <Typography variant="caption" fontWeight={800} letterSpacing=".06em">IMAN TRUCKING SCHOOL</Typography>

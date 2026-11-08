@@ -84,3 +84,21 @@ describe('CDL Training special pricing', () => {
     expect(() => pricingTotal([{ code: 'x', label: 'X', amount_cents: -1 }], 0, false)).toThrow()
   })
 })
+
+describe('course-specific training fee label', () => {
+  it('uses the course label when set and the default otherwise', async () => {
+    const { coursePricing } = await import('../shared/tuition.mjs')
+    const base = { training_cents: 90000, testing_fee_cents: 0, administrative_fee_cents: 5000, materials_fee_cents: 0, housing_fee_cents: 0 }
+    expect(coursePricing({ ...base, training_fee_label: 'Box Truck Training - Sale Price' }).items[0]).toEqual({ code: 'training', label: 'Box Truck Training - Sale Price', amount_cents: 90000 })
+    expect(coursePricing({ ...base, training_fee_label: '  ' }).items[0].label).toBe('CDL Training - Sale Price')
+    expect(coursePricing(base).items[0].label).toBe('CDL Training - Sale Price')
+  })
+
+  it('titles price sheets by program', async () => {
+    const { sheetTitle } = await import('../src/portal/CdlPricingSheet')
+    expect(sheetTitle({ code: 'CDL-A', name: 'CDL Class A Training' })).toBe('CDL TRAINING')
+    expect(sheetTitle({ code: 'BOX-TRUCK', name: 'Box Truck Training (Non-CDL)' })).toBe('BOX TRUCK TRAINING')
+    expect(sheetTitle({ code: 'HOTSHOT-CDL', name: 'Hotshot Training (CDL)' })).toBe('HOTSHOT TRAINING')
+    expect(sheetTitle(null)).toBe('CDL TRAINING')
+  })
+})

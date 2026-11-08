@@ -5,6 +5,7 @@ import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { useContent } from '../contexts/ContentContext'
+import { APPLY_PATH } from '../navigation'
 import { FinancingBar, FinancingBenefits, RED, ROYAL } from './financing/HomeFinancing'
 
 // Background slideshow: the school's own truck photos.
@@ -44,10 +45,8 @@ export function HomeHero() {
   const { content } = useContent()
   const hero = content('home', 'hero', {
     section_label: 'Orlando’s career-focused CDL school',
-    title: 'Your road to a professional driving career.',
-    body: 'Build real-world driving skills with experienced instructors, hands-on Class A CDL training, and support from enrollment through graduation.',
-    button_text: 'Check your CDL readiness',
-    button_url: '/cdl-assessment/',
+    title: 'Start Your Journey Toward a Commercial Driver’s License',
+    body: 'Learn what it takes to earn a Class A CDL, from your learner’s permit to the skills test, and how hands-on training at Iman prepares you for each step.',
   })
   const [activeSlide, setActiveSlide] = useState(0)
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
@@ -110,11 +109,11 @@ export function HomeHero() {
         </Typography>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="center" sx={{ mt: 3.5 }}>
-          <Button component={RouterLink} to="/cdl-assessment/" variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px -10px rgba(214,31,44,.55)' }}>
-            Check your CDL readiness
+          <Button component={RouterLink} to={APPLY_PATH} variant="contained" color="secondary" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ minHeight: 54, px: 3, boxShadow: '0 15px 35px -10px rgba(214,31,44,.55)' }}>
+            Apply Now
           </Button>
-          <Button component={RouterLink} to="/our-program/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: 'white', borderWidth: 1.5, borderColor: 'rgba(255,255,255,.6)', bgcolor: 'rgba(255,255,255,.06)', backdropFilter: 'blur(6px)', '&:hover': { borderWidth: 1.5, borderColor: 'white', bgcolor: 'rgba(255,255,255,.14)' } }}>
-            Explore the program
+          <Button component={RouterLink} to="/how-to-get-a-cdl/" variant="outlined" size="large" sx={{ minHeight: 54, px: 3, color: 'white', borderWidth: 1.5, borderColor: 'rgba(255,255,255,.6)', bgcolor: 'rgba(255,255,255,.06)', backdropFilter: 'blur(6px)', '&:hover': { borderWidth: 1.5, borderColor: 'white', bgcolor: 'rgba(255,255,255,.14)' } }}>
+            How to Get a CDL
           </Button>
         </Stack>
 

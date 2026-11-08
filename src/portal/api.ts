@@ -435,8 +435,9 @@ export async function authedFetch<T = unknown>(path: string, init: RequestInit =
 }
 
 /**
- * Asks the API server to turn an account with a legacy role (or no profile)
- * into a student account. Staff and student accounts are left unchanged.
+ * Asks the API server to turn a school sign-up that has no profile or the
+ * Logistics app's default 'employee' role into a student account. Accounts
+ * the Logistics back office created, staff and students are left unchanged.
  */
 export function setUpStudentAccount() {
   return authedFetch<{ role: string; repaired: boolean }>('/api/me/student-account', { method: 'POST', body: '{}' })
@@ -496,7 +497,7 @@ export function getMyBilling() {
 }
 
 export type CoursePricing = {
-  id: string; code: string; name: string; active: boolean; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean; updated_at: string
+  id: string; code: string; name: string; description: string | null; training_fee_label: string | null; active: boolean; tuition_cents: number; deposit_cents: number; installment_count: number; installments_enabled: boolean; updated_at: string
   training_cents: number; testing_fee_cents: number; administrative_fee_cents: number; materials_fee_cents: number; housing_fee_cents: number
   currency: string; pricing_version: number; pricing_effective_at: string
 }
@@ -516,6 +517,27 @@ export function getCoursePricingHistory(courseId: string) {
 
 export function updateCoursePricing(courseId: string, input: CoursePricingInput) {
   return authedFetch<{ course: CoursePricing }>(`/api/admin/courses/${courseId}/pricing`, { method: 'PATCH', body: JSON.stringify(input) }).then(result => result.course)
+}
+
+export type CourseDetailsInput = { name: string; description: string; trainingFeeLabel: string; active: boolean }
+
+export function createCourse(input: CourseDetailsInput & { code: string }) {
+  return authedFetch<{ course: CoursePricing }>('/api/admin/courses', { method: 'POST', body: JSON.stringify(input) }).then(result => result.course)
+}
+
+export function updateCourseDetails(courseId: string, input: CourseDetailsInput) {
+  return authedFetch<{ course: CoursePricing }>(`/api/admin/courses/${courseId}`, { method: 'PATCH', body: JSON.stringify(input) }).then(result => result.course)
+}
+
+export type AdminSession = { id: string; name: string; starts_at: string; ends_at: string; open: boolean; updated_at: string }
+export type SessionInput = { name: string; startsOn: string; endsOn: string; open: boolean }
+
+export function listSessions() {
+  return authedFetch<{ sessions: AdminSession[] }>('/api/admin/sessions').then(result => result.sessions)
+}
+
+export function saveSession(sessionId: string | null, input: SessionInput) {
+  return authedFetch<{ session: AdminSession }>(sessionId ? `/api/admin/sessions/${sessionId}` : '/api/admin/sessions', { method: sessionId ? 'PATCH' : 'POST', body: JSON.stringify(input) }).then(result => result.session)
 }
 
 /** Opens a tuition account at the course price so the student can pay by card. */

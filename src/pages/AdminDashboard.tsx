@@ -43,6 +43,7 @@ export function AdminDashboard() {
     [AssignmentIcon, 'Applications', 'Review CDL Training and Assessment applications', '/admin/cdl-applications/'],
     [AccountBalanceRoundedIcon, 'Tuition Accounts', 'Assign tuition, deposits, installments and review balances', '/admin/tuition-accounts/'],
     [AccountBalanceRoundedIcon, 'Financing Referrals', 'View students sent to Liberty and record follow-up', '/admin/financing-referrals/'],
+    [PublicRoundedIcon, 'Website Requests', 'Graduate verifications, complaints, careers and prior-training questions from the website', '/admin/website-requests/'],
     [PersonAddIcon, 'Enrollments', 'Manage student enrollments', '/admin/cdl-enrollments/'],
     [PeopleIcon, 'Instructor View', 'View all student submissions', '/admin/cdl-instructor/'],
     [PersonAddIcon, 'Create Instructor', 'Create new instructor accounts', '/admin/create-instructor/'],

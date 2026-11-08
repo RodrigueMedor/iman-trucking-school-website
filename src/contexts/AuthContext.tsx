@@ -182,7 +182,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: {
           emailRedirectTo: redirectTo,
-          data: { first_name: firstName, last_name: lastName, full_name: `${firstName} ${lastName}`.trim() },
+          // signup_source tells the database this is a school student, so the
+          // account is created as a student even though the shared database's
+          // Logistics trigger defaults new profiles to 'employee' (see
+          // supabase/migrations/202611050004_school_signups_are_students.sql).
+          data: { first_name: firstName, last_name: lastName, full_name: `${firstName} ${lastName}`.trim(), signup_source: 'iman_trucking_school' },
         },
       })
       if (error) {
